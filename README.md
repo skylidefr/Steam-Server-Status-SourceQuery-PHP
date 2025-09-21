@@ -100,6 +100,13 @@ Utilisez le shortcode suivant pour afficher le statut :
 - **Extension PHP Socket** (pour les requêtes SourceQuery)
 - **Serveur Valheim** avec les requêtes activées
 
+## 🔧 Configuration serveur
+
+Assurez-vous que votre serveur Valheim accepte les requêtes :
+
+```bash
+# Dans votre script de lancement
+-public 1
 ```
 
 ## 📸 Captures d'écran
@@ -158,5 +165,3 @@ Ce projet est sous licence MIT - voir le fichier [LICENSE](LICENSE) pour plus de
 **⭐ N'oubliez pas de donner une étoile si ce projet vous aide ! ⭐**
 
 Made with ❤️ for the Valheim community
-
-</div>
