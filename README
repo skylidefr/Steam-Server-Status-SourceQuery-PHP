@@ -1,0 +1,86 @@
+Steam Server Status
+
+
+
+
+
+
+Steam Server Status est un plugin WordPress qui permet d’afficher le nombre de joueurs connectés sur un ou plusieurs serveurs Steam compatibles SourceQuery.
+Compatible avec Elementor, vous pouvez personnaliser les styles via CSS.
+
+Fonctionnalités
+
+Statut du serveur (en ligne / hors ligne)
+
+Nombre de joueurs connectés et capacité maximale
+
+Support de plusieurs serveurs configurables depuis WordPress
+
+Cache intégré (par défaut 15 secondes) pour limiter les requêtes
+
+Shortcode simple pour afficher le statut sur pages et articles
+
+Compatible Elementor pour styles personnalisables
+
+Installation
+
+Clonez ou téléchargez ce dépôt dans wp-content/plugins/ :
+
+git clone https://github.com/votre-utilisateur/steam-server-status.git
+
+
+Activez le plugin via le menu Extensions dans WordPress.
+
+Allez dans Réglages → Steam Status pour configurer vos serveurs.
+
+Ajoutez vos serveurs avec l’adresse IP et le port correspondant.
+
+Utilisez le shortcode suivant pour afficher le statut :
+
+[steam_status id="0" show_name="1"]
+
+Shortcode
+Attribut	Description
+id	Identifiant du serveur (0 = premier serveur, 1 = deuxième, etc.)
+show_name	1 pour afficher le nom du serveur, 0 pour le masquer
+
+Exemple :
+
+[steam_status id="1" show_name="0"]
+
+Dépendances
+
+PHP SourceQuery
+
+WordPress 5.0+
+
+PHP 7.4+
+
+Licence
+
+MIT License – libre d’utilisation et modification.
+
+Contribuer
+
+Forkez le projet
+
+Créez une branche : git checkout -b feature/nouvelle-fonctionnalité
+
+Committez vos modifications : git commit -am 'Ajout d’une fonctionnalité'
+
+Poussez vers la branche : git push origin feature/nouvelle-fonctionnalité
+
+Ouvrez une Pull Request
+
+Auteur
+
+Skylide – Créateur du plugin.
+Pour suggestions ou questions, contactez-moi via GitHub.
+
+Captures d’écran (optionnel)
+
+Page d’administration : configurez facilement vos serveurs
+
+Front-end : affichez le statut sur vos pages ou articles
+
+Pour les captures, créez un dossier screenshots et ajoutez vos images.
