@@ -1,4 +1,4 @@
-# 🛡️ Valheim Server Status
+# 🎮 Steam Server Status
 
 <div align="center">
 
@@ -6,7 +6,7 @@
 ![PHP](https://img.shields.io/badge/PHP-7.4+-777BB4?style=for-the-badge&logo=php&logoColor=white)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 
-**Un plugin WordPress élégant pour afficher le statut en temps réel de vos serveurs Valheim**
+**Un plugin WordPress élégant pour afficher le statut en temps réel de vos serveurs Steam**
 
 [Installation](#-installation) • [Utilisation](#-utilisation) • [Fonctionnalités](#-fonctionnalités) • [Contribuer](#-contribuer)
 
@@ -16,7 +16,7 @@
 
 ## 📖 Description
 
-**Valheim Server Status** est un plugin WordPress moderne qui permet d'afficher facilement le nombre de joueurs connectés sur un ou plusieurs serveurs Valheim compatibles SourceQuery. Parfait pour les communautés de joueurs qui souhaitent partager l'activité de leurs serveurs sur leur site web.
+**Steam Server Status** est un plugin WordPress moderne qui permet d'afficher facilement le nombre de joueurs connectés sur un ou plusieurs serveurs Steam compatibles SourceQuery. Parfait pour les communautés de joueurs qui souhaitent partager l'activité de leurs serveurs sur leur site web.
 
 ## ✨ Fonctionnalités
 
@@ -34,13 +34,13 @@
 
 ```bash
 cd wp-content/plugins/
-git clone https://github.com/skylidefr/Valheim-Status.git valheim-status
+git clone https://github.com/skylidefr/steam-server-status.git steam-server-status
 ```
 
 ### 2️⃣ Configuration
 
 1. **Activez le plugin** via le menu **Extensions** dans WordPress
-2. Allez dans **Réglages → Valheim Status** 
+2. Allez dans **Réglages → Steam Status** 
 3. **Ajoutez vos serveurs** avec l'adresse IP et le port
 4. **Testez la connexion** pour vérifier la configuration
 
@@ -49,7 +49,7 @@ git clone https://github.com/skylidefr/Valheim-Status.git valheim-status
 Utilisez le shortcode suivant pour afficher le statut :
 
 ```php
-[valheim_status id="0" show_name="1"]
+[steam_status id="0" show_name="1"]
 ```
 
 ## 🎯 Utilisation
@@ -65,27 +65,27 @@ Utilisez le shortcode suivant pour afficher le statut :
 
 ```php
 // Afficher le premier serveur avec son nom
-[valheim_status id="0" show_name="1"]
+[steam_status id="0" show_name="1"]
 
 // Afficher le deuxième serveur sans nom
-[valheim_status id="1" show_name="0"]
+[steam_status id="1" show_name="0"]
 
 // Afficher tous les serveurs
-[valheim_status id="all"]
+[steam_status id="all"]
 ```
 
 ### 🎨 Personnalisation CSS
 
 ```css
-.valheim-server-status {
-    background: linear-gradient(135deg, #2c3e50, #3498db);
+.steam-server-status {
+    background: linear-gradient(135deg, #171a21, #2a475e);
     border-radius: 10px;
     padding: 20px;
     color: white;
 }
 
 .server-online {
-    border-left: 4px solid #27ae60;
+    border-left: 4px solid #66c0f4;
 }
 
 .server-offline {
@@ -98,7 +98,21 @@ Utilisez le shortcode suivant pour afficher le statut :
 - **WordPress** 5.0 ou supérieur
 - **PHP** 7.4 ou supérieur  
 - **Extension PHP Socket** (pour les requêtes SourceQuery)
-- **Serveur Valheim** avec les requêtes activées
+- **Serveur Steam** compatible SourceQuery
+
+## 🎮 Jeux compatibles
+
+Ce plugin fonctionne avec tous les jeux Steam utilisant le protocole SourceQuery :
+
+- Counter-Strike: Global Offensive
+- Counter-Strike 2
+- Team Fortress 2
+- Garry's Mod
+- Left 4 Dead 2
+- Rust
+- ARK: Survival Evolved
+- Valheim
+- Et bien d'autres...
 
 ## 📸 Captures d'écran
 
@@ -146,7 +160,7 @@ Ce projet est sous licence MIT - voir le fichier [LICENSE](LICENSE) pour plus de
 
 ## ⭐ Remerciements
 
-- Merci à la communauté Valheim pour les retours et suggestions
+- Merci à la communauté Steam pour les retours et suggestions
 - Inspiré par les outils de monitoring de serveurs de jeux existants
 
 ---
@@ -155,4 +169,6 @@ Ce projet est sous licence MIT - voir le fichier [LICENSE](LICENSE) pour plus de
 
 **⭐ N'oubliez pas de donner une étoile si ce projet vous aide ! ⭐**
 
-Made with ❤️ for the Valheim community
+Made with ❤️ for the Steam gaming community
+
+</div>
