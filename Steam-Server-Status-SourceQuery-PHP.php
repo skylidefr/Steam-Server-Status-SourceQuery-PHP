@@ -6,6 +6,7 @@ Version: 1.2
 Author: Skylide
 GitHub Plugin URI: skylidefr/Steam-Server-Status-SourceQuery-PHP
 GitHub Branch: main
+Author URI: https://github.com/skylidefr/Steam-Server-Status-SourceQuery-PHP/
 */
 
 if (!defined('ABSPATH')) exit;
