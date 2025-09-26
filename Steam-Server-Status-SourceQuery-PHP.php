@@ -1,7 +1,7 @@
 <?php
 /*
 Plugin Name: Steam Server Status SourceQuery PHP
-Description: Affiche le nombre de joueurs connectés sur un ou plusieurs serveurs Steam avec personnalisation avancée des couleurs, bordures, police et taille du texte. Intègre un système de mise à jour via GitHub.
+Description: Affiche le nombre de joueurs connectés sur un ou plusieurs serveurs Steam avec personnalisation avancée des couleurs, bordures, police et taille du texte. Intègre un système de mise à jour via GitHub (tags).
 Version: 1.1
 Author: Skylide
 */
@@ -305,7 +305,7 @@ function steam_status_all_shortcode($atts){
     return $html;
 }
 
-/* ---------------- GITHUB UPDATER ---------------- */
+/* ---------------- GITHUB UPDATER (tags) ---------------- */
 if (!class_exists('GitHubPluginUpdater')) {
     class GitHubPluginUpdater {
         private $slug;
@@ -336,7 +336,6 @@ if (!class_exists('GitHubPluginUpdater')) {
                 $obj->new_version = $remote_version;
                 $obj->url = $this->github_url;
                 $obj->package = $remote['zipball_url'];
-
                 $transient->response[$this->slug] = $obj;
             }
 
@@ -359,20 +358,27 @@ if (!class_exists('GitHubPluginUpdater')) {
             $obj->tested = '6.4';
             $obj->download_link = $remote['zipball_url'];
             $obj->sections = [
-                'Description' => $remote['body']
+                'Description' => $remote['body'] ?? 'Mise à jour automatique via GitHub.'
             ];
 
             return $obj;
         }
 
         private function get_remote_info() {
-            $url = "https://api.github.com/repos/skylidefr/Steam-Server-Status-SourceQuery-PHP/releases/latest";
+            $url = "https://api.github.com/repos/skylidefr/Steam-Server-Status-SourceQuery-PHP/tags";
             $request = wp_remote_get($url, ['headers' => ['User-Agent' => 'WordPress']]);
             if (is_wp_error($request)) return false;
 
             $body = wp_remote_retrieve_body($request);
             $data = json_decode($body, true);
-            return $data ? $data : false;
+            if (!$data || !isset($data[0]['name'])) return false;
+
+            return [
+                'tag_name' => $data[0]['name'],
+                'zipball_url' => "https://github.com/skylidefr/Steam-Server-Status-SourceQuery-PHP/archive/refs/tags/".$data[0]['name'].".zip",
+                'name' => 'Steam Server Status SourceQuery PHP',
+                'body' => 'Mise à jour automatique via GitHub.'
+            ];
         }
     }
 }
