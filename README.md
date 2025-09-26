@@ -1,4 +1,4 @@
-# 🎮 Steam Server Status SourceQuery PHP
+# 🎮 Steam Server Status SourceQuery PHP - SSSP
 
 <div align="center">
 
