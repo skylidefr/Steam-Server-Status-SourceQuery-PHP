@@ -33,7 +33,7 @@
 
 ```bash
 cd wp-content/plugins/
-git clone https://github.com/skylidefr/steam-server-status.git steam-server-status
+git clone https://github.com/skylidefr/Steam-Server-Status-SourceQuery-PHP.git Steam-Server-Status-SourceQuery-PHP
 ```
 
 ### 2️⃣ Configuration
