@@ -2,7 +2,7 @@
 /*
 Plugin Name: Steam Server Status SourceQuery PHP
 Description: Affiche le nombre de joueurs connectés sur un ou plusieurs serveurs Steam avec personnalisation avancée des couleurs, bordures, police et taille du texte.
-Version: 1.2
+Version: 1.1
 Author: Skylide
 */
 
@@ -255,7 +255,7 @@ function steam_server_status($atts){
 
     if($data['online']){
         return '<div id="'.$unique_id.'" class="steam-status steam-status-server-'.$id.' online">'.
-                ($show_name?'<span class="server-name">'.esc_html($data['name']).'</span>':'').
+                ($show_name?'<span class="server-name">'.esc_html($data['name']).'</span>':''). 
                 '<span class="label">'.$text_players.'</span>'.
                 '<span class="players">'.$data['players'].'</span>'.
                 '<span class="separator">'.$text_separator.'</span>'.
@@ -303,4 +303,58 @@ function steam_status_all_shortcode($atts){
         $html.='</div>';
     }
     return $html;
+}
+
+/* ---------------- MISE À JOUR AUTOMATIQUE GITHUB ---------------- */
+add_filter('site_transient_update_plugins', 'steam_status_check_github_update');
+add_filter('plugins_api', 'steam_status_plugins_api', 10, 3);
+
+function steam_status_check_github_update($transient){
+    if (empty($transient->checked)) return $transient;
+
+    $plugin_slug = plugin_basename(__FILE__);
+    $current_version = '1.2'; // version actuelle
+    $repo_owner = 'skylidefr';
+    $repo_name = 'Steam-Server-Status-SourceQuery-PHP';
+
+    $request = wp_remote_get("https://api.github.com/repos/$repo_owner/$repo_name/releases/latest");
+    if (!is_wp_error($request)){
+        $body = wp_remote_retrieve_body($request);
+        $data = json_decode($body);
+        if (isset($data->tag_name) && version_compare($current_version, $data->tag_name, '<')){
+            $transient->response[$plugin_slug] = (object)[
+                'slug'        => $plugin_slug,
+                'new_version' => $data->tag_name,
+                'url'         => $data->html_url,
+                'package'     => $data->zipball_url,
+            ];
+        }
+    }
+    return $transient;
+}
+
+function steam_status_plugins_api($false, $action, $args){
+    $plugin_slug = plugin_basename(__FILE__);
+    $repo_owner = 'skylidefr';
+    $repo_name = 'Steam-Server-Status-SourceQuery-PHP';
+
+    if ($action === 'plugin_information' && $args->slug === $plugin_slug){
+        $request = wp_remote_get("https://api.github.com/repos/$repo_owner/$repo_name/releases/latest");
+        if (!is_wp_error($request)){
+            $body = wp_remote_retrieve_body($request);
+            $data = json_decode($body);
+            return (object)[
+                'name'          => 'Steam Server Status SourceQuery PHP',
+                'slug'          => $plugin_slug,
+                'version'       => $data->tag_name,
+                'author'        => 'Skylide',
+                'homepage'      => $data->html_url,
+                'requires'      => '5.0',
+                'tested'        => '7.0',
+                'download_link' => $data->zipball_url,
+                'sections'      => ['description' => $data->body],
+            ];
+        }
+    }
+    return false;
 }
