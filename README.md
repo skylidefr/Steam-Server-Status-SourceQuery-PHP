@@ -180,12 +180,12 @@ Pour signaler un bug, ouvrez une [issue](https://github.com/skylidefr/Steam-Serv
 
 ## Historique des versions
 
-### v1.1.1
+### v1.2
 - Ajout du système de mise à jour automatique GitHub
 - Amélioration de l'interface d'administration
 - Correction de bugs mineurs
 
-### v1.0.1
+### v1.1
 - Version initiale stable
 - Support multi-serveurs
 - Système de cache intégré
