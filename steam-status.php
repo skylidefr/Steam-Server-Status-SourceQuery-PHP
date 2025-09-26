@@ -111,7 +111,7 @@ function steam_status_settings_page() {
     $all_display_default = get_option('steam_all_display_default','table');
     ?>
     <div class="wrap">
-        <h1>🎮 Réglages - Steam Server Status Advanced</h1>
+        <h1>🎮 Réglages - Steam Server Status SourceQuery PHP - SSSP</h1>
         <form method="post" action="options.php">
             <?php settings_fields('steam_status_options_group'); ?>
 
