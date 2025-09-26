@@ -2,7 +2,7 @@
 /*
 Plugin Name: Steam Server Status SourceQuery PHP
 Description: Affiche le nombre de joueurs connectés sur un ou plusieurs serveurs Steam avec personnalisation avancée.
-Version: 1.1
+Version: 1.2
 Author: Skylide
 GitHub Plugin URI: skylidefr/Steam-Server-Status-SourceQuery-PHP
 GitHub Branch: main
@@ -195,7 +195,7 @@ class SteamStatusGitHubUpdater {
 /* ---------------- ADMIN MENU & SETTINGS ---------------- */
 add_action('admin_menu', 'steam_status_menu');
 function steam_status_menu() {
-    add_options_page('Steam Server Status', 'Steam Status', 'manage_options', 'steam-status', 'steam_status_settings_page');
+    add_options_page('Steam Server Status', 'Steam Server Status SP', 'manage_options', 'steam-status', 'steam_status_settings_page');
 }
 
 add_action('admin_init', 'steam_status_register_settings');
