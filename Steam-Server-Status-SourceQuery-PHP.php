@@ -1,8 +1,8 @@
 <?php
 /*
 Plugin Name: Steam Server Status SourceQuery PHP
-Description: Affiche le nombre de joueurs connectés sur un ou plusieurs serveurs Steam avec personnalisation avancée des couleurs, bordures et police.
-Version: 1.1
+Description: Affiche le nombre de joueurs connectés sur un ou plusieurs serveurs Steam avec personnalisation avancée des couleurs, bordures, police et taille du texte.
+Version: 1.2
 Author: Skylide
 */
 
@@ -31,10 +31,6 @@ function steam_status_register_settings() {
     register_setting('steam_status_options_group', 'steam_text_separator');
     register_setting('steam_status_options_group', 'steam_text_no_players');
 
-    // Bouton
-    register_setting('steam_status_options_group', 'steam_button_text');
-    register_setting('steam_status_options_group', 'steam_button_enabled_default');
-
     // Couleurs et style
     register_setting('steam_status_options_group', 'steam_use_text_colors');
     register_setting('steam_status_options_group', 'steam_use_border_colors');
@@ -45,6 +41,7 @@ function steam_status_register_settings() {
 
     // Police
     register_setting('steam_status_options_group', 'steam_font_family');
+    register_setting('steam_status_options_group', 'steam_font_size'); // ajout taille du texte
 
     // Shortcode display default
     register_setting('steam_status_options_group', 'steam_all_display_default');
@@ -95,9 +92,6 @@ function steam_status_settings_page() {
     $text_separator = get_option('steam_text_separator','/');
     $text_no_players = get_option('steam_text_no_players','Aucun joueur en ligne');
 
-    $button_text = get_option('steam_button_text','Rejoindre');
-    $button_enabled_default = get_option('steam_button_enabled_default',1);
-
     $use_text_colors = get_option('steam_use_text_colors',1);
     $use_border_colors = get_option('steam_use_border_colors',1);
 
@@ -107,6 +101,7 @@ function steam_status_settings_page() {
     $color_border_offline = get_option('steam_color_border_offline','#e74c3c');
 
     $font_family = get_option('steam_font_family','Arial, sans-serif');
+    $font_size = intval(get_option('steam_font_size', 14));
 
     $all_display_default = get_option('steam_all_display_default','table');
     ?>
@@ -154,10 +149,6 @@ function steam_status_settings_page() {
                 <tr><th>Aucun joueur</th><td><input type="text" name="steam_text_no_players" value="<?php echo esc_attr($text_no_players); ?>"></td></tr>
             </table>
 
-            <h2>Bouton "Rejoindre"</h2>
-            <p><label>Texte : <input type="text" name="steam_button_text" value="<?php echo esc_attr($button_text); ?>"></label></p>
-            <p><label><input type="checkbox" name="steam_button_enabled_default" value="1" <?php checked(1,$button_enabled_default); ?>> Activer le bouton par défaut</label></p>
-
             <h2>Style Online / Offline</h2>
             <p><label><input type="checkbox" name="steam_use_text_colors" value="1" <?php checked(1,$use_text_colors); ?>> Activer la couleur du texte</label></p>
             <p><label><input type="checkbox" name="steam_use_border_colors" value="1" <?php checked(1,$use_border_colors); ?>> Activer la couleur de la bordure</label></p>
@@ -170,6 +161,7 @@ function steam_status_settings_page() {
 
             <h2>Police</h2>
             <p>Police du texte : <input type="text" name="steam_font_family" value="<?php echo esc_attr($font_family); ?>" placeholder="Ex: Arial, sans-serif"></p>
+            <p>Taille du texte (px) : <input type="number" name="steam_font_size" value="<?php echo esc_attr($font_size); ?>" min="8" step="1"></p>
 
             <h2>Shortcode [steam_status_all]</h2>
             <p>Rendu par défaut : 
@@ -189,6 +181,7 @@ function steam_status_settings_page() {
 add_action('wp_head', 'steam_status_front_styles');
 function steam_status_front_styles() {
     $font_family = get_option('steam_font_family','Arial, sans-serif');
+    $font_size = intval(get_option('steam_font_size', 14));
     $use_text_colors = get_option('steam_use_text_colors',1);
     $use_border_colors = get_option('steam_use_border_colors',1);
 
@@ -203,12 +196,11 @@ function steam_status_front_styles() {
     $color_offline = $use_text_colors ? $color_text_offline : "inherit";
 
     echo "<style>
-    .steam-status{ font-family:{$font_family}; padding:10px; border-radius:6px; display:inline-block; margin:6px; }
+    .steam-status{ font-family:{$font_family}; font-size:{$font_size}px; padding:10px; border-radius:6px; display:inline-block; margin:6px; }
     .steam-status.online{ {$border_online} color:{$color_online}; background:rgba(0,0,0,0.03); }
     .steam-status.offline{ {$border_offline} color:{$color_offline}; background:rgba(0,0,0,0.02); }
     .steam-status .server-name{ font-weight:700; display:block; margin-bottom:4px; }
     .steam-status .players,.steam-status .maxplayers{ font-weight:600; margin:0 4px; }
-    .steam-status .join-button{ display:inline-block; margin-left:8px; padding:6px 10px; border-radius:4px; text-decoration:none; font-weight:600; border:1px solid rgba(0,0,0,0.08); }
     .steam-status-table{ width:100%; border-collapse:collapse; }
     .steam-status-table th,.steam-status-table td{ padding:8px 10px; border:1px solid #ddd; text-align:left; }
     .steam-card{ display:inline-block; vertical-align:top; width:280px; margin:6px; }
@@ -260,8 +252,6 @@ function steam_server_status($atts){
     $text_players=get_option('steam_text_players','Joueurs connectés :');
     $text_separator=get_option('steam_text_separator','/');
     $text_offline=get_option('steam_text_offline','Serveur injoignable');
-    $button_enabled=get_option('steam_button_enabled_default',1);
-    $button_text=get_option('steam_button_text','Rejoindre');
 
     if($data['online']){
         return '<div id="'.$unique_id.'" class="steam-status steam-status-server-'.$id.' online">'.
@@ -270,7 +260,6 @@ function steam_server_status($atts){
                 '<span class="players">'.$data['players'].'</span>'.
                 '<span class="separator">'.$text_separator.'</span>'.
                 '<span class="maxplayers">'.$data['max'].'</span>'.
-                ($button_enabled?'<a href="steam://connect/'.$server['ip'].':'.$server['port'].'" class="join-button">'.esc_html($button_text).'</a>':'').
                 '</div>';
     }else{
         return '<div id="'.$unique_id.'" class="steam-status steam-status-server-'.$id.' offline">'.
@@ -291,13 +280,12 @@ function steam_status_all_shortcode($atts){
     $html='';
 
     if($display==='table'){
-        $html.='<table class="steam-status-table"><thead><tr><th>Serveur</th><th>État</th><th>Joueurs</th><th>Rejoindre</th></tr></thead><tbody>';
+        $html.='<table class="steam-status-table"><thead><tr><th>Serveur</th><th>État</th><th>Joueurs</th></tr></thead><tbody>';
         foreach($servers as $i=>$server){
             $data=steam_get_server_data_cached($server,$i,$cache_duration);
             $status=$data['online']?'<span class="online">Online</span>':'<span class="offline">Offline</span>';
             $players=$data['online']?$data['players'].' / '.$data['max']:'0 / 0';
-            $join=$data['online'] && get_option('steam_button_enabled_default',1)?'<a href="steam://connect/'.$server['ip'].':'.$server['port'].'" class="join-button">'.esc_html(get_option('steam_button_text','Rejoindre')).'</a>':'';
-            $html.='<tr><td>'.esc_html($server['name']).'</td><td>'.$status.'</td><td>'.$players.'</td><td>'.$join.'</td></tr>';
+            $html.='<tr><td>'.esc_html($server['name']).'</td><td>'.$status.'</td><td>'.$players.'</td></tr>';
         }
         $html.='</tbody></table>';
     }else{
@@ -306,12 +294,10 @@ function steam_status_all_shortcode($atts){
             $data=steam_get_server_data_cached($server,$i,$cache_duration);
             $status=$data['online']?'<span class="online">Online</span>':'<span class="offline">Offline</span>';
             $players=$data['online']?$data['players'].' / '.$data['max']:'0 / 0';
-            $join=$data['online'] && get_option('steam_button_enabled_default',1)?'<a href="steam://connect/'.$server['ip'].':'.$server['port'].'" class="join-button">'.esc_html(get_option('steam_button_text','Rejoindre')).'</a>':'';
             $html.='<div class="steam-card steam-status-server-'.$i.'">'.
                 ($show_name?'<strong>'.esc_html($server['name']).'</strong><br>':'').
                 $status.'<br>'.
-                $players.'<br>'.
-                $join.
+                $players.
                 '</div>';
         }
         $html.='</div>';
