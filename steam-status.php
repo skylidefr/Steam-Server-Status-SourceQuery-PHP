@@ -1,6 +1,6 @@
 <?php
 /*
-Plugin Name: Steam Server Status Advanced
+Plugin Name: Steam Server Status SourceQuery PHP
 Description: Affiche le nombre de joueurs connectés sur un ou plusieurs serveurs Steam avec personnalisation avancée des couleurs, bordures et police.
 Version: 1.1
 Author: Skylide
