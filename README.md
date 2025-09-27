@@ -7,7 +7,7 @@
 ![Version](https://img.shields.io/github/v/release/skylidefr/Steam-Server-Status-SourceQuery-PHP?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-GPLv2+-4E9A06?style=for-the-badge)
 
-**Un plugin WordPress élégant pour afficher le statut en temps réel de vos serveurs Steam**
+**Un plugin WordPress élégant pour afficher le statut en temps réel de vos serveurs de jeux**
 
 [Installation](#installation) • [Utilisation](#utilisation) • [Fonctionnalités](#fonctionnalités) • [Contribuer](#contribuer)
 
