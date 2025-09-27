@@ -1,1 +1,49 @@
-# Steam Server Status SourceQuery PHP - SSSSP\n\n<div align=\"center\">\n\n![WordPress](https://img.shields.io/badge/WordPress-5.0+-21759B?style=for-the-badge&logo=wordpress&logoColor=white)\n![PHP](https://img.shields.io/badge/PHP-7.4+-777BB4?style=for-the-badge&logo=php&logoColor=white)\n![Version](https://img.shields.io/github/v/release/skylidefr/Steam-Server-Status-SourceQuery-PHP?style=for-the-badge)\n![License](https://img.shields.io/badge/License-GPLv2+-4E9A06?style=for-the-badge)\n\n**Un plugin WordPress élégant pour afficher le statut en temps réel de vos serveurs Steam**\n\n[Installation](#installation) • [Utilisation](#utilisation) • [Fonctionnalités](#fonctionnalités) • [Contribuer](#contribuer)\n\n</div>\n\n---\n\n## Description\n\n**Steam Server Status SourceQuery PHP** est un plugin WordPress moderne qui permet d'afficher facilement le nombre de joueurs connectés sur un ou plusieurs serveurs Steam compatibles SourceQuery. Parfait pour les communautés de joueurs qui souhaitent partager l'activité de leurs serveurs sur leur site web.\n\n## Fonctionnalités\n\n- **Statut en temps réel** - Affichage du statut serveur (en ligne/hors ligne)  \n- **Compteur de joueurs** - Nombre de joueurs connectés et capacité maximale  \n- **Multi-serveurs** - Support de plusieurs serveurs configurables  \n- **Cache intégré** - Système de cache (15s par défaut) pour optimiser les performances  \n- **Mise à jour automatique** - Système de mise à jour via GitHub releases  \n- **Personnalisation avancée** - Couleurs, polices et styles configurables  \n- **Shortcodes flexibles** - Intégration facile dans vos pages et articles  \n- **Interface responsive** - Adaptée à tous les écrans  \n\n## Installation\n\n### Via Git\n\n```bash\ncd wp-content/plugins/\ngit clone https://github.com/skylidefr/Steam-Server-Status-SourceQuery-PHP.git\n```\n\n### Configuration\n\n1. **Activez le plugin** via le menu **Extensions** dans WordPress  \n2. Allez dans **Réglages → Steam Status**  \n3. **Ajoutez vos serveurs** avec l'adresse IP et le port  \n4. **Configurez l'affichage** selon vos préférences  \n5. **Testez la connexion** pour vérifier la configuration  \n\n## Utilisation\n\n### Shortcodes disponibles\n\n#### Afficher un serveur spécifique\n```php\n[steam_status id=\"0\" show_name=\"1\"]\n```\n\n#### Afficher tous les serveurs\n```php\n[steam_status_all display=\"table\"]\n[steam_status_all display=\"cards\"]\n```\n\n### Paramètres des shortcodes\n\n| Paramètre | Description | Valeurs | Défaut |\n|-----------|-------------|---------|---------|\n| `id` | Identifiant du serveur | `0`, `1`, `2`... | `0` |\n| `show_name` | Afficher le nom du serveur | `1` (oui), `0` (non) | `1` |\n| `display` | Mode d'affichage (steam_status_all) | `table`, `cards` | `table` |\n\n### Exemples d'utilisation\n\n```php\n// Afficher le premier serveur avec son nom\n[steam_status id=\"0\" show_name=\"1\"]\n\n// Afficher le deuxième serveur sans nom\n[steam_status id=\"1\" show_name=\"0\"]\n\n// Afficher tous les serveurs en tableau\n[steam_status_all display=\"table\"]\n\n// Afficher tous les serveurs en cartes\n[steam_status_all display=\"cards\"]\n```\n\n## Configuration avancée\n\n### Options disponibles dans l'administration\n\n- **Gestion des serveurs** - Ajout/suppression de serveurs  \n- **Personnalisation des textes** - Messages d'erreur et labels  \n- **Couleurs et styles** - Personnalisation visuelle complète  \n- **Polices** - Configuration de la typographie  \n- **Cache** - Durée de mise en cache des données  \n\n### Personnalisation CSS\n\n```css\n.steam-status {\n    background: linear-gradient(135deg, #171a21, #2a475e);\n    border-radius: 10px;\n    padding: 20px;\n    color: white;\n}\n\n.steam-status.online {\n    border-left: 4px solid #66c0f4;\n}\n\n.steam-status.offline {\n    border-left: 4px solid #e74c3c;\n}\n```\n\n## Prérequis techniques\n\n- **WordPress** 5.0 ou supérieur  \n- **PHP** 7.4 ou supérieur  \n- **Extension PHP Socket** (pour les requêtes SourceQuery)  \n- **Serveur Steam** compatible SourceQuery  \n\n## Jeux compatibles\n\nCe plugin fonctionne avec tous les jeux Steam utilisant le protocole SourceQuery :  \n\n- Counter-Strike: Global Offensive  \n- Counter-Strike 2  \n- Team Fortress 2  \n- Garry's Mod  \n- Left 4 Dead 2  \n- Rust  \n- ARK: Survival Evolved  \n- Valheim  \n- DayZ  \n- Et bien d'autres...  \n\n## Mise à jour automatique\n\nLe plugin intègre un système de mise à jour automatique via GitHub :  \n\n1. Les nouvelles versions sont détectées automatiquement  \n2. Les notifications apparaissent dans l'interface WordPress  \n3. Installation en un clic depuis l'administration  \n4. Conservation de vos paramètres lors des mises à jour  \n\n## Dépannage\n\n### Serveur injoignable\n\n- Vérifiez que le serveur est en ligne  \n- Contrôlez l'adresse IP et le port  \n- Assurez-vous que les requêtes SourceQuery sont activées  \n\n### Plugin non fonctionnel\n\n- Vérifiez les prérequis PHP  \n- Activez le mode debug WordPress  \n- Consultez les logs d'erreurs  \n\n## Contribuer\n\nLes contributions sont bienvenues sur le [repository GitHub](https://github.com/skylidefr/Steam-Server-Status-SourceQuery-PHP) !  \n\n### Développement\n\n1. Forkez le projet  \n2. Créez votre branche : `git checkout -b feature/nouvelle-fonctionnalite`  \n3. Commitez vos changements : `git commit -m 'Ajout nouvelle fonctionnalité'`  \n4. Pushez sur la branche : `git push origin feature/nouvelle-fonctionnalite`  \n5. Ouvrez une Pull Request  \n\n### Signaler un bug\n\nPour signaler un bug, ouvrez une [issue](https://github.com/skylidefr/Steam-Server-Status-SourceQuery-PHP/issues) avec :  \n\n- Description détaillée du problème  \n- Version de WordPress et PHP  \n- Configuration de serveur  \n- Messages d'erreur le cas échéant  \n\n## Historique des versions\n\n### v1.2\n\n- Ajout du système de mise à jour automatique GitHub  \n- Amélioration de l'interface d'administration  \n- Correction de bugs mineurs  \n\n### v1.1\n\n- Version initiale stable  \n- Support multi-serveurs  \n- Système de cache intégré  \n- Personnalisation avancée  \n\n## Licence\n\nCe plugin WordPress, **Steam Server Status SourceQuery PHP**, est distribué sous la **Licence publique générale GNU (GPL) version 2 ou ultérieure**.  \n\nCela signifie que vous pouvez :  \n\n- Utiliser le plugin librement sur vos sites WordPress  \n- Étudier et modifier le code source  \n- Redistribuer le plugin original ou vos modifications, à condition de conserver la même licence GPL  \n\nPour plus de détails, consultez le fichier [LICENSE](https://www.gnu.org/licenses/old-licenses/gpl-2.0.html) ou le site officiel GNU.  \n\n## Auteur\n\n**Skylide**  \n- GitHub: [@skylidefr](https://github.com/skylidefr)  \n- Repository: [Steam-Server-Status-SourceQuery-PHP](https://github.com/skylidefr/Steam-Server-Status-SourceQuery-PHP)  \n\n## Remerciements\n\n- Merci à la communauté Steam pour les retours et suggestions  \n- Basé sur la librairie SourceQuery PHP de xPaw  \n- Inspiré par les outils de monitoring de serveurs de jeux existants  \n\n---\n\n<div align=\"center\">\n\n**N'hésitez pas à donner une étoile si ce projet vous aide !**  \n\nMade with ❤️ for the Steam gaming community\n\n</div>
+# Steam Server Status SourceQuery PHP - SSSSP
+
+<div align="center">
+
+![WordPress](https://img.shields.io/badge/WordPress-5.0+-21759B?style=for-the-badge&logo=wordpress&logoColor=white)
+![PHP](https://img.shields.io/badge/PHP-7.4+-777BB4?style=for-the-badge&logo=php&logoColor=white)
+![Version](https://img.shields.io/github/v/release/skylidefr/Steam-Server-Status-SourceQuery-PHP?style=for-the-badge)
+![License](https://img.shields.io/badge/License-GPLv2+-4E9A06?style=for-the-badge)
+
+**Un plugin WordPress élégant pour afficher le statut en temps réel de vos serveurs Steam**
+
+[Installation](#installation) • [Utilisation](#utilisation) • [Fonctionnalités](#fonctionnalités) • [Contribuer](#contribuer)
+
+</div>
+
+---
+## Description
+
+**Steam Server Status SourceQuery PHP** est un plugin WordPress moderne qui permet d'afficher facilement le nombre de joueurs connectés sur un ou plusieurs serveurs Steam compatibles SourceQuery. Parfait pour les communautés de joueurs qui souhaitent partager l'activité de leurs serveurs sur leur site web.
+
+## Fonctionnalités
+
+- **Statut en temps réel** - Affichage du statut serveur (en ligne/hors ligne)  
+- **Compteur de joueurs** - Nombre de joueurs connectés et capacité maximale  
+- **Multi-serveurs** - Support de plusieurs serveurs configurables  
+- **Cache intégré** - Système de cache (15s par défaut) pour optimiser les performances  
+- **Mise à jour automatique** - Système de mise à jour via GitHub releases  
+- **Personnalisation avancée** - Couleurs, polices et styles configurables  
+- **Shortcodes flexibles** - Intégration facile dans vos pages et articles  
+- **Interface responsive** - Adaptée à tous les écrans  
+Installation
+Via Git
+
+Pour cloner le plugin depuis GitHub :
+
+cd wp-content/plugins/
+git clone https://github.com/skylidefr/Steam-Server-Status-SourceQuery-PHP.git
+
+Configuration
+
+Activez le plugin via le menu Extensions dans WordPress
+
+Allez dans Réglages → Steam Status
+
+Ajoutez vos serveurs avec l'adresse IP et le port
+
+Configurez l'affichage selon vos préférences
+
+Testez la connexion pour vérifier la configuration
