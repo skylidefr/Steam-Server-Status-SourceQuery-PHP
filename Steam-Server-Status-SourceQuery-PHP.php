@@ -1,7 +1,7 @@
 <?php
 /*
 Plugin Name: Steam Server Status SourceQuery PHP
-Description: Affiche le nombre de joueurs connectés sur un ou plusieurs serveurs Steam avec personnalisation avancée.
+Description: Affiche le nombre de joueurs connectés sur un ou plusieurs serveurs Steam et Minecraft avec personnalisation avancée.
 Version: 1.2.2
 Author: Skylide
 GitHub Plugin URI: skylidefr/Steam-Server-Status-SourceQuery-PHP
@@ -13,7 +13,11 @@ if (!defined('ABSPATH')) exit;
 
 // Chargement des dépendances
 require_once __DIR__ . '/SourceQuery/bootstrap.php';
+require_once __DIR__ . '/MinecraftQuery/MinecraftQuery.php';
+require_once __DIR__ . '/MinecraftQuery/MinecraftQueryException.php';
+
 use xPaw\SourceQuery\SourceQuery;
+use xPaw\MinecraftQuery;
 
 /**
  * Classe principale du plugin
@@ -71,8 +75,8 @@ class SteamServerStatusPlugin {
     
     public function addAdminMenu() {
         add_options_page(
-            'Steam Server Status',
-            'Steam Server Status',
+            'Steam & Minecraft Server Status',
+            'Steam & Minecraft Status',
             'manage_options',
             $this->plugin_slug,
             [$this, 'renderSettingsPage']
@@ -99,11 +103,14 @@ class SteamServerStatusPlugin {
             'steam_font_family',
             'steam_font_size',
             'steam_all_display_default',
-            // Nouvelles options latence
+            // Options latence
             'steam_show_latency_global',
             'steam_latency_cache_duration',
             'steam_latency_threshold_good',
-            'steam_latency_threshold_medium'
+            'steam_latency_threshold_medium',
+            // Nouvelles options Minecraft
+            'steam_show_motd',
+            'steam_show_version'
         ];
         
         foreach ($settings as $setting) {
@@ -117,7 +124,6 @@ class SteamServerStatusPlugin {
         wp_enqueue_style('wp-color-picker');
         wp_enqueue_script('wp-color-picker');
         
-        // Utilisation de la version automatique
         wp_enqueue_script(
             'steam-admin-js',
             plugin_dir_url($this->plugin_file) . 'assets/admin.js',
@@ -126,7 +132,6 @@ class SteamServerStatusPlugin {
             true
         );
         
-        // Script inline si pas de fichier séparé
         wp_add_inline_script('wp-color-picker', $this->getAdminScript());
     }
     
@@ -149,6 +154,12 @@ class SteamServerStatusPlugin {
                 const row = `
                     <tr>
                         <td><input type=\"text\" name=\"steam_servers[\${index}][name]\" placeholder=\"Nom du serveur\"></td>
+                        <td>
+                            <select name=\"steam_servers[\${index}][type]\">
+                                <option value=\"source\">Steam/Source</option>
+                                <option value=\"minecraft\">Minecraft</option>
+                            </select>
+                        </td>
                         <td><input type=\"text\" name=\"steam_servers[\${index}][ip]\" placeholder=\"45.90.160.141\"></td>
                         <td><input type=\"number\" name=\"steam_servers[\${index}][port]\" placeholder=\"27015\"></td>
                         <td><input type=\"checkbox\" name=\"steam_servers[\${index}][show_latency]\" value=\"1\"></td>
@@ -220,6 +231,18 @@ class SteamServerStatusPlugin {
         .steam-status .latency.good{ color:#2ecc71; }
         .steam-status .latency.medium{ color:#f39c12; }
         .steam-status .latency.bad{ color:#e74c3c; }
+        .steam-status .server-info{
+            font-size:0.85em;
+            opacity:0.8;
+            display:block;
+            margin-top:2px;
+        }
+        .steam-status .motd{
+            font-style:italic;
+            font-size:0.9em;
+            margin-top:4px;
+            display:block;
+        }
         .steam-status-table{ 
             width:100%; 
             border-collapse:collapse; 
@@ -232,7 +255,7 @@ class SteamServerStatusPlugin {
         .steam-card{ 
             display:inline-block; 
             vertical-align:top; 
-            width:280px; 
+            width:300px; 
             margin:6px; 
         }
         </style>";
@@ -245,7 +268,7 @@ class SteamServerStatusPlugin {
         $options = $this->getAllOptions();
         ?>
         <div class="wrap">
-            <h1>🎮 Réglages - Steam Server Status SourceQuery PHP</h1>
+            <h1>🎮 Réglages - Steam & Minecraft Server Status</h1>
             <form method="post" action="options.php">
                 <?php settings_fields('steam_status_options_group'); ?>
 
@@ -254,6 +277,7 @@ class SteamServerStatusPlugin {
                     <thead>
                         <tr>
                             <th>Nom</th>
+                            <th>Type</th>
                             <th>Adresse IP</th>
                             <th>Port</th>
                             <th>Afficher latence</th>
@@ -264,6 +288,12 @@ class SteamServerStatusPlugin {
                     <?php foreach ($servers as $index => $server): ?>
                         <tr>
                             <td><input type="text" name="steam_servers[<?php echo $index; ?>][name]" value="<?php echo esc_attr($server['name']); ?>" placeholder="Nom du serveur"></td>
+                            <td>
+                                <select name="steam_servers[<?php echo $index; ?>][type]">
+                                    <option value="source" <?php selected('source', $server['type'] ?? 'source'); ?>>Steam/Source</option>
+                                    <option value="minecraft" <?php selected('minecraft', $server['type'] ?? 'source'); ?>>Minecraft</option>
+                                </select>
+                            </td>
                             <td><input type="text" name="steam_servers[<?php echo $index; ?>][ip]" value="<?php echo esc_attr($server['ip']); ?>" placeholder="45.90.160.141"></td>
                             <td><input type="number" name="steam_servers[<?php echo $index; ?>][port]" value="<?php echo esc_attr($server['port']); ?>" placeholder="27015"></td>
                             <td><input type="checkbox" name="steam_servers[<?php echo $index; ?>][show_latency]" value="1" <?php checked(1, $server['show_latency'] ?? 0); ?>></td>
@@ -276,6 +306,10 @@ class SteamServerStatusPlugin {
 
                 <h2>Options d'affichage</h2>
                 <p><label><input type="checkbox" name="steam_show_name" value="1" <?php checked(1, $options['show_name']); ?>> Afficher le nom du serveur en front</label></p>
+                
+                <h2>Options Minecraft</h2>
+                <p><label><input type="checkbox" name="steam_show_motd" value="1" <?php checked(1, $options['show_motd']); ?>> Afficher le MOTD des serveurs Minecraft</label></p>
+                <p><label><input type="checkbox" name="steam_show_version" value="1" <?php checked(1, $options['show_version']); ?>> Afficher la version des serveurs</label></p>
 
                 <h2>Configuration Latence</h2>
                 <p><label><input type="checkbox" name="steam_show_latency_global" value="1" <?php checked(1, $options['show_latency_global']); ?>> Activer l'affichage de la latence globalement</label></p>
@@ -343,11 +377,14 @@ class SteamServerStatusPlugin {
             'font_family' => get_option('steam_font_family', 'Arial, sans-serif'),
             'font_size' => intval(get_option('steam_font_size', 14)),
             'all_display_default' => get_option('steam_all_display_default', 'table'),
-            // Nouvelles options latence
+            // Options latence
             'show_latency_global' => get_option('steam_show_latency_global', 1),
             'latency_cache_duration' => intval(get_option('steam_latency_cache_duration', 5)),
             'latency_threshold_good' => intval(get_option('steam_latency_threshold_good', 80)),
             'latency_threshold_medium' => intval(get_option('steam_latency_threshold_medium', 200)),
+            // Options Minecraft
+            'show_motd' => get_option('steam_show_motd', 1),
+            'show_version' => get_option('steam_show_version', 1),
         ];
     }
     
@@ -394,55 +431,116 @@ class SteamServerStatusPlugin {
     
     // Méthodes utilitaires
     private function queryServer($server) {
+        $server_type = $server['type'] ?? 'source';
+        
         $result = [
             'error' => false,
             'online' => false,
             'players' => 0,
             'max' => 0,
             'name' => $server['name'] ?? '',
-            'latency' => null
+            'latency' => null,
+            'type' => $server_type,
+            'version' => null,
+            'motd' => null
         ];
         
-        $query = new SourceQuery();
-        
         try {
-            // Mesure de la latence avec 3 tentatives
-            $latencies = [];
-            $timeout = 1;
-            
-            for ($i = 0; $i < 3; $i++) {
-                $start_time = microtime(true);
-                $query->Connect($server['ip'], $server['port'], $timeout, SourceQuery::SOURCE);
-                $info = $query->GetInfo();
-                $end_time = microtime(true);
-                
-                $latencies[] = ($end_time - $start_time) * 1000;
-                $query->Disconnect();
-                
-                if ($i < 2) usleep(100000); // 100ms pause entre tentatives
+            if ($server_type === 'minecraft') {
+                $result = $this->queryMinecraftServer($server, $result);
+            } else {
+                $result = $this->querySourceServer($server, $result);
             }
-            
-            // Prendre la moyenne des 3 pings
-            $average_latency = round(array_sum($latencies) / count($latencies));
-            
-            // Reconnexion finale pour récupérer les données
-            $query->Connect($server['ip'], $server['port'], $timeout, SourceQuery::SOURCE);
-            $info = $query->GetInfo();
-            
-            $result['online'] = true;
-            $result['players'] = intval($info['Players'] ?? 0);
-            $result['max'] = intval($info['MaxPlayers'] ?? 0);
-            $result['latency'] = $average_latency;
-            
         } catch (Exception $e) {
-            error_log('Steam Server Query Error: ' . $e->getMessage());
+            error_log('Server Query Error: ' . $e->getMessage());
             $result['error'] = true;
             $result['online'] = false;
-        } finally {
-            $query->Disconnect();
         }
         
         return $result;
+    }
+    
+    private function queryMinecraftServer($server, $result) {
+        $latencies = [];
+        $timeout = 1;
+        
+        // Mesure latence avec 3 tentatives
+        for ($i = 0; $i < 3; $i++) {
+            $start_time = microtime(true);
+            
+            $query = new MinecraftQuery();
+            $query->Connect($server['ip'], $server['port'], $timeout);
+            $info = $query->GetInfo();
+            
+            $end_time = microtime(true);
+            $latencies[] = ($end_time - $start_time) * 1000;
+            
+            if ($i < 2) usleep(100000); // 100ms pause
+        }
+        
+        // Requête finale pour récupérer toutes les données
+        $query = new MinecraftQuery();
+        $query->Connect($server['ip'], $server['port'], $timeout);
+        $info = $query->GetInfo();
+        
+        if ($info) {
+            $result['online'] = true;
+            $result['players'] = intval($info['Players'] ?? 0);
+            $result['max'] = intval($info['MaxPlayers'] ?? 0);
+            $result['version'] = $info['Version'] ?? null;
+            $result['motd'] = $this->cleanMinecraftMotd($info['HostName'] ?? null);
+            $result['latency'] = round(array_sum($latencies) / count($latencies));
+        }
+        
+        return $result;
+    }
+    
+    private function querySourceServer($server, $result) {
+        $latencies = [];
+        $timeout = 1;
+        $query = new SourceQuery();
+        
+        // Mesure latence avec 3 tentatives
+        for ($i = 0; $i < 3; $i++) {
+            $start_time = microtime(true);
+            
+            $query->Connect($server['ip'], $server['port'], $timeout, SourceQuery::SOURCE);
+            $info = $query->GetInfo();
+            
+            $end_time = microtime(true);
+            $latencies[] = ($end_time - $start_time) * 1000;
+            
+            $query->Disconnect();
+            if ($i < 2) usleep(100000); // 100ms pause
+        }
+        
+        // Requête finale pour récupérer toutes les données
+        $query->Connect($server['ip'], $server['port'], $timeout, SourceQuery::SOURCE);
+        $info = $query->GetInfo();
+        
+        $result['online'] = true;
+        $result['players'] = intval($info['Players'] ?? 0);
+        $result['max'] = intval($info['MaxPlayers'] ?? 0);
+        $result['version'] = $info['Version'] ?? null;
+        $result['latency'] = round(array_sum($latencies) / count($latencies));
+        
+        $query->Disconnect();
+        
+        return $result;
+    }
+    
+    private function cleanMinecraftMotd($motd) {
+        if (!$motd) return null;
+        
+        // Nettoyer les codes couleur Minecraft (§x)
+        $motd = preg_replace('/§[0-9a-fk-or]/', '', $motd);
+        
+        // Nettoyer les codes JSON si présents
+        if (is_array($motd)) {
+            $motd = isset($motd['text']) ? $motd['text'] : '';
+        }
+        
+        return trim($motd);
     }
     
     private function getServerDataCached($server, $id) {
@@ -454,8 +552,6 @@ class SteamServerStatusPlugin {
         
         // Récupérer les données serveur
         $data = get_transient($cache_key);
-        
-        // Récupérer la latence séparément
         $latency = get_transient($latency_cache_key);
         
         if ($data === false) {
@@ -464,9 +560,9 @@ class SteamServerStatusPlugin {
                 $data['name'] = $server['name'];
             }
             
-            // Stocker les données avec cache séparé pour latence
+            // Stocker avec cache séparé pour latence
             $latency_data = $data['latency'];
-            unset($data['latency']); // Retirer latence des données principales
+            unset($data['latency']);
             
             set_transient($cache_key, $data, $cache_duration);
             set_transient($latency_cache_key, $latency_data, $latency_cache_duration);
@@ -497,6 +593,9 @@ class SteamServerStatusPlugin {
         $show_latency_server = $server['show_latency'] ?? 0;
         $should_show_latency = $show_latency_global && $show_latency_server;
         
+        $show_motd = get_option('steam_show_motd', 1);
+        $show_version = get_option('steam_show_version', 1);
+        
         $unique_id = 'steam-status-' . $id;
         $text_players = get_option('steam_text_players', 'Joueurs connectés :');
         $text_separator = get_option('steam_text_separator', '/');
@@ -513,8 +612,18 @@ class SteamServerStatusPlugin {
                 );
             }
             
+            $version_display = '';
+            if ($show_version && $data['version']) {
+                $version_display = sprintf(' <span class="server-info">(%s)</span>', esc_html($data['version']));
+            }
+            
+            $motd_display = '';
+            if ($show_motd && $data['motd'] && $data['type'] === 'minecraft') {
+                $motd_display = sprintf('<span class="motd">%s</span>', esc_html($data['motd']));
+            }
+            
             return sprintf(
-                '<div id="%s" class="steam-status steam-status-server-%d online">%s<span class="label">%s</span><span class="players">%d</span><span class="separator">%s</span><span class="maxplayers">%d</span>%s</div>',
+                '<div id="%s" class="steam-status steam-status-server-%d online">%s<span class="label">%s</span><span class="players">%d</span><span class="separator">%s</span><span class="maxplayers">%d</span>%s%s%s</div>',
                 $unique_id,
                 $id,
                 $show_name ? '<span class="server-name">' . esc_html($data['name']) . '</span>' : '',
@@ -522,7 +631,9 @@ class SteamServerStatusPlugin {
                 $data['players'],
                 esc_html($text_separator),
                 $data['max'],
-                $latency_display
+                $latency_display,
+                $version_display,
+                $motd_display
             );
         } else {
             return sprintf(
@@ -549,12 +660,21 @@ class SteamServerStatusPlugin {
     }
     
     private function renderAllServersTable($servers) {
-        $html = '<table class="steam-status-table"><thead><tr><th>Serveur</th><th>État</th><th>Joueurs</th><th>Latence</th></tr></thead><tbody>';
+        $show_version = get_option('steam_show_version', 1);
+        
+        $html = '<table class="steam-status-table"><thead><tr><th>Serveur</th><th>Type</th><th>État</th><th>Joueurs</th><th>Latence</th>';
+        if ($show_version) {
+            $html .= '<th>Version</th>';
+        }
+        $html .= '</tr></thead><tbody>';
         
         foreach ($servers as $i => $server) {
             $data = $this->getServerDataCached($server, $i);
             $status = $data['online'] ? '<span class="online">Online</span>' : '<span class="offline">Offline</span>';
             $players = $data['online'] ? $data['players'] . ' / ' . $data['max'] : '0 / 0';
+            
+            $server_type = ucfirst($server['type'] ?? 'source');
+            if ($server_type === 'Source') $server_type = 'Steam';
             
             $latency_display = '-';
             if ($data['online'] && $data['latency'] !== null && ($server['show_latency'] ?? 0) && get_option('steam_show_latency_global', 1)) {
@@ -562,13 +682,25 @@ class SteamServerStatusPlugin {
                 $latency_display = sprintf('<span class="latency %s">%dms</span>', $latency_class, $data['latency']);
             }
             
+            $version_display = '-';
+            if ($show_version && $data['version']) {
+                $version_display = esc_html($data['version']);
+            }
+            
             $html .= sprintf(
-                '<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
+                '<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td>',
                 esc_html($server['name']),
+                $server_type,
                 $status,
                 $players,
                 $latency_display
             );
+            
+            if ($show_version) {
+                $html .= sprintf('<td>%s</td>', $version_display);
+            }
+            
+            $html .= '</tr>';
         }
         
         $html .= '</tbody></table>';
@@ -576,6 +708,9 @@ class SteamServerStatusPlugin {
     }
     
     private function renderAllServersCards($servers, $show_name) {
+        $show_version = get_option('steam_show_version', 1);
+        $show_motd = get_option('steam_show_motd', 1);
+        
         $html = '<div class="steam-cards">';
         
         foreach ($servers as $i => $server) {
@@ -583,19 +718,35 @@ class SteamServerStatusPlugin {
             $status = $data['online'] ? '<span class="online">Online</span>' : '<span class="offline">Offline</span>';
             $players = $data['online'] ? $data['players'] . ' / ' . $data['max'] : '0 / 0';
             
+            $server_type = ucfirst($server['type'] ?? 'source');
+            if ($server_type === 'Source') $server_type = 'Steam';
+            
             $latency_display = '';
             if ($data['online'] && $data['latency'] !== null && ($server['show_latency'] ?? 0) && get_option('steam_show_latency_global', 1)) {
                 $latency_class = $this->getLatencyClass($data['latency']);
                 $latency_display = sprintf(' <span class="latency %s">(%dms)</span>', $latency_class, $data['latency']);
             }
             
+            $version_display = '';
+            if ($show_version && $data['version']) {
+                $version_display = sprintf('<br><span class="server-info">%s</span>', esc_html($data['version']));
+            }
+            
+            $motd_display = '';
+            if ($show_motd && $data['motd'] && $data['type'] === 'minecraft') {
+                $motd_display = sprintf('<br><span class="motd">%s</span>', esc_html($data['motd']));
+            }
+            
             $html .= sprintf(
-                '<div class="steam-card steam-status-server-%d">%s%s%s<br>%s</div>',
+                '<div class="steam-card steam-status-server-%d">%s<strong>[%s]</strong><br>%s%s<br>%s%s%s</div>',
                 $i,
                 $show_name ? '<strong>' . esc_html($server['name']) . '</strong><br>' : '',
+                $server_type,
                 $status,
                 $latency_display,
-                $players
+                $players,
+                $version_display,
+                $motd_display
             );
         }
         
