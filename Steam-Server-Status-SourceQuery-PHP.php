@@ -2,7 +2,7 @@
 /*
 Plugin Name: Steam Server Status SourceQuery PHP
 Description: Affiche le nombre de joueurs connectés sur un ou plusieurs serveurs Steam avec personnalisation avancée.
-Version: 1.2.1
+Version: 1.2.2
 Author: Skylide
 GitHub Plugin URI: skylidefr/Steam-Server-Status-SourceQuery-PHP
 GitHub Branch: main
@@ -98,7 +98,12 @@ class SteamServerStatusPlugin {
             'steam_color_border_offline',
             'steam_font_family',
             'steam_font_size',
-            'steam_all_display_default'
+            'steam_all_display_default',
+            // Nouvelles options latence
+            'steam_show_latency_global',
+            'steam_latency_cache_duration',
+            'steam_latency_threshold_good',
+            'steam_latency_threshold_medium'
         ];
         
         foreach ($settings as $setting) {
@@ -146,6 +151,7 @@ class SteamServerStatusPlugin {
                         <td><input type=\"text\" name=\"steam_servers[\${index}][name]\" placeholder=\"Nom du serveur\"></td>
                         <td><input type=\"text\" name=\"steam_servers[\${index}][ip]\" placeholder=\"45.90.160.141\"></td>
                         <td><input type=\"number\" name=\"steam_servers[\${index}][port]\" placeholder=\"27015\"></td>
+                        <td><input type=\"checkbox\" name=\"steam_servers[\${index}][show_latency]\" value=\"1\"></td>
                         <td><button type=\"button\" class=\"button remove-server\">❌</button></td>
                     </tr>
                 `;
@@ -207,6 +213,13 @@ class SteamServerStatusPlugin {
             font-weight:600; 
             margin:0 4px; 
         }
+        .steam-status .latency{
+            font-size:0.9em;
+            margin-left:8px;
+        }
+        .steam-status .latency.good{ color:#2ecc71; }
+        .steam-status .latency.medium{ color:#f39c12; }
+        .steam-status .latency.bad{ color:#e74c3c; }
         .steam-status-table{ 
             width:100%; 
             border-collapse:collapse; 
@@ -243,6 +256,7 @@ class SteamServerStatusPlugin {
                             <th>Nom</th>
                             <th>Adresse IP</th>
                             <th>Port</th>
+                            <th>Afficher latence</th>
                             <th>Supprimer</th>
                         </tr>
                     </thead>
@@ -252,6 +266,7 @@ class SteamServerStatusPlugin {
                             <td><input type="text" name="steam_servers[<?php echo $index; ?>][name]" value="<?php echo esc_attr($server['name']); ?>" placeholder="Nom du serveur"></td>
                             <td><input type="text" name="steam_servers[<?php echo $index; ?>][ip]" value="<?php echo esc_attr($server['ip']); ?>" placeholder="45.90.160.141"></td>
                             <td><input type="number" name="steam_servers[<?php echo $index; ?>][port]" value="<?php echo esc_attr($server['port']); ?>" placeholder="27015"></td>
+                            <td><input type="checkbox" name="steam_servers[<?php echo $index; ?>][show_latency]" value="1" <?php checked(1, $server['show_latency'] ?? 0); ?>></td>
                             <td><button type="button" class="button remove-server">❌</button></td>
                         </tr>
                     <?php endforeach; ?>
@@ -262,8 +277,14 @@ class SteamServerStatusPlugin {
                 <h2>Options d'affichage</h2>
                 <p><label><input type="checkbox" name="steam_show_name" value="1" <?php checked(1, $options['show_name']); ?>> Afficher le nom du serveur en front</label></p>
 
+                <h2>Configuration Latence</h2>
+                <p><label><input type="checkbox" name="steam_show_latency_global" value="1" <?php checked(1, $options['show_latency_global']); ?>> Activer l'affichage de la latence globalement</label></p>
+                <p><label>Cache latence (secondes) : <input type="number" name="steam_latency_cache_duration" value="<?php echo esc_attr($options['latency_cache_duration']); ?>" min="5" step="5"></label></p>
+                <p><label>Seuil "Bonne" latence (ms) : <input type="number" name="steam_latency_threshold_good" value="<?php echo esc_attr($options['latency_threshold_good']); ?>" min="1"></label></p>
+                <p><label>Seuil "Moyenne" latence (ms) : <input type="number" name="steam_latency_threshold_medium" value="<?php echo esc_attr($options['latency_threshold_medium']); ?>" min="1"></label></p>
+
                 <h2>Cache</h2>
-                <p><label>Durée du cache (en secondes) : <input type="number" name="steam_cache_duration" value="<?php echo esc_attr($options['cache_duration']); ?>" min="5" step="5"></label></p>
+                <p><label>Durée du cache serveur (en secondes) : <input type="number" name="steam_cache_duration" value="<?php echo esc_attr($options['cache_duration']); ?>" min="5" step="5"></label></p>
 
                 <h2>Textes personnalisables</h2>
                 <table class="form-table">
@@ -322,6 +343,11 @@ class SteamServerStatusPlugin {
             'font_family' => get_option('steam_font_family', 'Arial, sans-serif'),
             'font_size' => intval(get_option('steam_font_size', 14)),
             'all_display_default' => get_option('steam_all_display_default', 'table'),
+            // Nouvelles options latence
+            'show_latency_global' => get_option('steam_show_latency_global', 1),
+            'latency_cache_duration' => intval(get_option('steam_latency_cache_duration', 5)),
+            'latency_threshold_good' => intval(get_option('steam_latency_threshold_good', 80)),
+            'latency_threshold_medium' => intval(get_option('steam_latency_threshold_medium', 200)),
         ];
     }
     
@@ -373,18 +399,41 @@ class SteamServerStatusPlugin {
             'online' => false,
             'players' => 0,
             'max' => 0,
-            'name' => $server['name'] ?? ''
+            'name' => $server['name'] ?? '',
+            'latency' => null
         ];
         
         $query = new SourceQuery();
         
         try {
-            $query->Connect($server['ip'], $server['port'], 1, SourceQuery::SOURCE);
+            // Mesure de la latence avec 3 tentatives
+            $latencies = [];
+            $timeout = 1;
+            
+            for ($i = 0; $i < 3; $i++) {
+                $start_time = microtime(true);
+                $query->Connect($server['ip'], $server['port'], $timeout, SourceQuery::SOURCE);
+                $info = $query->GetInfo();
+                $end_time = microtime(true);
+                
+                $latencies[] = ($end_time - $start_time) * 1000;
+                $query->Disconnect();
+                
+                if ($i < 2) usleep(100000); // 100ms pause entre tentatives
+            }
+            
+            // Prendre la moyenne des 3 pings
+            $average_latency = round(array_sum($latencies) / count($latencies));
+            
+            // Reconnexion finale pour récupérer les données
+            $query->Connect($server['ip'], $server['port'], $timeout, SourceQuery::SOURCE);
             $info = $query->GetInfo();
             
             $result['online'] = true;
             $result['players'] = intval($info['Players'] ?? 0);
             $result['max'] = intval($info['MaxPlayers'] ?? 0);
+            $result['latency'] = $average_latency;
+            
         } catch (Exception $e) {
             error_log('Steam Server Query Error: ' . $e->getMessage());
             $result['error'] = true;
@@ -398,15 +447,39 @@ class SteamServerStatusPlugin {
     
     private function getServerDataCached($server, $id) {
         $cache_key = 'steam_status_' . $id;
-        $cache_duration = intval(get_option('steam_cache_duration', 15));
+        $latency_cache_key = 'steam_latency_' . $id;
         
+        $cache_duration = intval(get_option('steam_cache_duration', 15));
+        $latency_cache_duration = intval(get_option('steam_latency_cache_duration', 5));
+        
+        // Récupérer les données serveur
         $data = get_transient($cache_key);
+        
+        // Récupérer la latence séparément
+        $latency = get_transient($latency_cache_key);
+        
         if ($data === false) {
             $data = $this->queryServer($server);
             if (empty($data['name']) && !empty($server['name'])) {
                 $data['name'] = $server['name'];
             }
+            
+            // Stocker les données avec cache séparé pour latence
+            $latency_data = $data['latency'];
+            unset($data['latency']); // Retirer latence des données principales
+            
             set_transient($cache_key, $data, $cache_duration);
+            set_transient($latency_cache_key, $latency_data, $latency_cache_duration);
+            
+            $data['latency'] = $latency_data;
+        } else {
+            // Si latence expirée mais pas les données serveur
+            if ($latency === false && $data['online']) {
+                $temp_data = $this->queryServer($server);
+                $latency = $temp_data['latency'];
+                set_transient($latency_cache_key, $latency, $latency_cache_duration);
+            }
+            $data['latency'] = $latency;
         }
         
         return $data;
@@ -417,21 +490,39 @@ class SteamServerStatusPlugin {
     }
     
     private function renderServerStatus($data, $id, $show_name) {
+        $servers = get_option('steam_servers', []);
+        $server = $servers[$id] ?? [];
+        
+        $show_latency_global = get_option('steam_show_latency_global', 1);
+        $show_latency_server = $server['show_latency'] ?? 0;
+        $should_show_latency = $show_latency_global && $show_latency_server;
+        
         $unique_id = 'steam-status-' . $id;
         $text_players = get_option('steam_text_players', 'Joueurs connectés :');
         $text_separator = get_option('steam_text_separator', '/');
         $text_offline = get_option('steam_text_offline', 'Serveur injoignable');
         
         if ($data['online']) {
+            $latency_display = '';
+            if ($should_show_latency && $data['latency'] !== null) {
+                $latency_class = $this->getLatencyClass($data['latency']);
+                $latency_display = sprintf(
+                    ' <span class="latency %s">(%dms)</span>',
+                    $latency_class,
+                    $data['latency']
+                );
+            }
+            
             return sprintf(
-                '<div id="%s" class="steam-status steam-status-server-%d online">%s<span class="label">%s</span><span class="players">%d</span><span class="separator">%s</span><span class="maxplayers">%d</span></div>',
+                '<div id="%s" class="steam-status steam-status-server-%d online">%s<span class="label">%s</span><span class="players">%d</span><span class="separator">%s</span><span class="maxplayers">%d</span>%s</div>',
                 $unique_id,
                 $id,
                 $show_name ? '<span class="server-name">' . esc_html($data['name']) . '</span>' : '',
                 esc_html($text_players),
                 $data['players'],
                 esc_html($text_separator),
-                $data['max']
+                $data['max'],
+                $latency_display
             );
         } else {
             return sprintf(
@@ -444,19 +535,39 @@ class SteamServerStatusPlugin {
         }
     }
     
+    private function getLatencyClass($latency) {
+        $good_threshold = intval(get_option('steam_latency_threshold_good', 80));
+        $medium_threshold = intval(get_option('steam_latency_threshold_medium', 200));
+        
+        if ($latency <= $good_threshold) {
+            return 'good';
+        } elseif ($latency <= $medium_threshold) {
+            return 'medium';
+        } else {
+            return 'bad';
+        }
+    }
+    
     private function renderAllServersTable($servers) {
-        $html = '<table class="steam-status-table"><thead><tr><th>Serveur</th><th>État</th><th>Joueurs</th></tr></thead><tbody>';
+        $html = '<table class="steam-status-table"><thead><tr><th>Serveur</th><th>État</th><th>Joueurs</th><th>Latence</th></tr></thead><tbody>';
         
         foreach ($servers as $i => $server) {
             $data = $this->getServerDataCached($server, $i);
             $status = $data['online'] ? '<span class="online">Online</span>' : '<span class="offline">Offline</span>';
             $players = $data['online'] ? $data['players'] . ' / ' . $data['max'] : '0 / 0';
             
+            $latency_display = '-';
+            if ($data['online'] && $data['latency'] !== null && ($server['show_latency'] ?? 0) && get_option('steam_show_latency_global', 1)) {
+                $latency_class = $this->getLatencyClass($data['latency']);
+                $latency_display = sprintf('<span class="latency %s">%dms</span>', $latency_class, $data['latency']);
+            }
+            
             $html .= sprintf(
-                '<tr><td>%s</td><td>%s</td><td>%s</td></tr>',
+                '<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>',
                 esc_html($server['name']),
                 $status,
-                $players
+                $players,
+                $latency_display
             );
         }
         
@@ -472,11 +583,18 @@ class SteamServerStatusPlugin {
             $status = $data['online'] ? '<span class="online">Online</span>' : '<span class="offline">Offline</span>';
             $players = $data['online'] ? $data['players'] . ' / ' . $data['max'] : '0 / 0';
             
+            $latency_display = '';
+            if ($data['online'] && $data['latency'] !== null && ($server['show_latency'] ?? 0) && get_option('steam_show_latency_global', 1)) {
+                $latency_class = $this->getLatencyClass($data['latency']);
+                $latency_display = sprintf(' <span class="latency %s">(%dms)</span>', $latency_class, $data['latency']);
+            }
+            
             $html .= sprintf(
-                '<div class="steam-card steam-status-server-%d">%s%s<br>%s</div>',
+                '<div class="steam-card steam-status-server-%d">%s%s%s<br>%s</div>',
                 $i,
                 $show_name ? '<strong>' . esc_html($server['name']) . '</strong><br>' : '',
                 $status,
+                $latency_display,
                 $players
             );
         }
@@ -637,4 +755,6 @@ register_deactivation_hook(__FILE__, function() {
     global $wpdb;
     $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_steam_status_%'");
     $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_timeout_steam_status_%'");
+    $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_steam_latency_%'");
+    $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_timeout_steam_latency_%'");
 });
