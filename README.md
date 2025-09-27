@@ -193,7 +193,11 @@ Pour signaler un bug, ouvrez une [issue](https://github.com/skylidefr/Steam-Serv
 
 ## Licence
 
-Ce plugin WordPress, Steam Server Status SourceQuery PHP, est distribué sous la Licence publique générale GNU (GPL) version 2 ou ultérieure.
+Ce plugin WordPress, **Steam Server Status SourceQuery PHP**, est distribué sous la **Licence publique générale GNU (GPL) version 2 ou ultérieure**.
+
+Vous pouvez utiliser, modifier et redistribuer ce plugin à condition de conserver la même licence.  
+
+Pour plus de détails, consultez le site officiel de la GPL : [GPL v2](https://www.gnu.org/licenses/old-licenses/gpl-2.0.html)
 
 
 ## Auteur
