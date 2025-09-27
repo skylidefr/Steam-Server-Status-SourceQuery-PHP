@@ -1,0 +1,148 @@
+/* Styles spécifiques pour le widget Elementor Steam Server Status */
+
+.steam-server-elementor-widget {
+    width: 100%;
+}
+
+/* Cartes dans Elementor */
+.steam-server-elementor-widget .steam-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 15px;
+    width: 100%;
+}
+
+.steam-server-elementor-widget .steam-card {
+    width: 100% !important;
+    margin: 0 !important;
+    box-sizing: border-box;
+}
+
+/* Tableau responsive dans Elementor */
+.steam-server-elementor-widget .steam-status-table {
+    width: 100%;
+    overflow-x: auto;
+    display: block;
+    white-space: nowrap;
+}
+
+.steam-server-elementor-widget .steam-status-table thead,
+.steam-server-elementor-widget .steam-status-table tbody {
+    display: table;
+    width: 100%;
+    table-layout: fixed;
+}
+
+.steam-server-elementor-widget .steam-status-table th,
+.steam-server-elementor-widget .steam-status-table td {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Responsive pour mobile */
+@media (max-width: 768px) {
+    .steam-server-elementor-widget .steam-cards {
+        grid-template-columns: 1fr;
+    }
+    
+    .steam-server-elementor-widget .steam-status-table {
+        font-size: 12px;
+    }
+    
+    .steam-server-elementor-widget .steam-status-table th,
+    .steam-server-elementor-widget .steam-status-table td {
+        padding: 4px 6px;
+    }
+}
+
+/* Animation pour les états online/offline */
+.steam-server-elementor-widget .steam-status {
+    transition: all 0.3s ease-in-out;
+}
+
+.steam-server-elementor-widget .steam-status:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Styles pour les icônes de jeux */
+.steam-server-elementor-widget .game-icon {
+    font-size: 1em;
+    margin-right: 8px;
+    vertical-align: middle;
+}
+
+/* Amélioration de l'affichage des latences */
+.steam-server-elementor-widget .latency {
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.85em;
+}
+
+.steam-server-elementor-widget .latency.good {
+    background-color: rgba(46, 204, 113, 0.1);
+}
+
+.steam-server-elementor-widget .latency.medium {
+    background-color: rgba(243, 156, 18, 0.1);
+}
+
+.steam-server-elementor-widget .latency.bad {
+    background-color: rgba(231, 76, 60, 0.1);
+}
+
+/* Styles pour les informations serveur */
+.steam-server-elementor-widget .server-info {
+    opacity: 0.7;
+    font-size: 0.8em;
+    font-style: italic;
+}
+
+.steam-server-elementor-widget .motd {
+    color: #666;
+    font-style: italic;
+    margin-top: 5px;
+    padding-top: 5px;
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+/* Mode sombre pour Elementor */
+.elementor-editor-dark .steam-server-elementor-widget .steam-status {
+    background-color: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.elementor-editor-dark .steam-server-elementor-widget .steam-status-table th,
+.elementor-editor-dark .steam-server-elementor-widget .steam-status-table td {
+    border-color: rgba(255, 255, 255, 0.2);
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* Preview dans l'admin */
+#preview-online, #preview-offline {
+    padding: 10px;
+    border: 2px solid;
+    border-radius: 6px;
+    margin: 10px 0;
+    display: inline-block;
+}
+
+/* Styles admin */
+.wrap .form-table input[type="text"].regular-text {
+    width: 95%;
+}
+
+.wrap .form-table input[type="number"].small-text {
+    width: 80px;
+}
+
+.advanced-settings {
+    display: none;
+    margin-top: 20px;
+    padding: 15px;
+    background: #f9f9f9;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}

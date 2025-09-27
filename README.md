@@ -5,9 +5,9 @@
 ![WordPress](https://img.shields.io/badge/WordPress-5.0+-21759B?style=for-the-badge&logo=wordpress&logoColor=white)
 ![PHP](https://img.shields.io/badge/PHP-7.4+-777BB4?style=for-the-badge&logo=php&logoColor=white)
 ![Version](https://img.shields.io/github/v/release/skylidefr/Steam-Server-Status-SourceQuery-PHP?style=for-the-badge)
-![License](https://img.shields.io/github/license/skylidefr/Steam-Server-Status-SourceQuery-PHP?style=for-the-badge)
+![License](https://img.shields.io/badge/License-GPLv2+-4E9A06?style=for-the-badge)
 
-**Un plugin WordPress élégant pour afficher le statut en temps réel de vos serveurs Steam**
+**Un plugin WordPress élégant pour afficher le statut en temps réel de vos serveurs de jeux**
 
 [Installation](#installation) • [Utilisation](#utilisation) • [Fonctionnalités](#fonctionnalités) • [Contribuer](#contribuer)
 
@@ -32,12 +32,18 @@
 
 ## Installation
 
-### Via Git
+### Méthode 1 : Via Git
 
 ```bash
 cd wp-content/plugins/
 git clone https://github.com/skylidefr/Steam-Server-Status-SourceQuery-PHP.git
 ```
+### Méthode 2 : Téléversement depuis WordPress
+
+1. Téléchargez le plugin au format ZIP depuis [GitHub](https://github.com/skylidefr/Steam-Server-Status-SourceQuery-PHP/archive/refs/tags/1.3.0.zip) ou depuis WordPress.org.  
+2. Connectez-vous à votre WordPress et allez dans **Extensions → Ajouter**.  
+3. Cliquez sur **Téléverser une extension**, sélectionnez le fichier ZIP, puis cliquez sur **Installer maintenant**.  
+4. Activez le plugin après l’installation.
 
 ### Configuration
 
@@ -193,7 +199,12 @@ Pour signaler un bug, ouvrez une [issue](https://github.com/skylidefr/Steam-Serv
 
 ## Licence
 
-Ce projet est sous licence MIT - voir le fichier [LICENSE](https://github.com/skylidefr/Steam-Server-Status-SourceQuery-PHP/blob/main/LICENSE) pour plus de détails.
+Ce plugin WordPress, **Steam Server Status SourceQuery PHP**, est distribué sous la **Licence publique générale GNU (GPL) version 2 ou ultérieure**.
+
+Vous pouvez utiliser, modifier et redistribuer ce plugin à condition de conserver la même licence.  
+
+Pour plus de détails, consultez le site officiel de la GPL : [GPL v2](https://www.gnu.org/licenses/old-licenses/gpl-2.0.html)
+
 
 ## Auteur
 
