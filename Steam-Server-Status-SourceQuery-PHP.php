@@ -2,7 +2,7 @@
 /*
 Plugin Name: Steam Server Status SourceQuery PHP
 Description: Affiche le nombre de joueurs connectés sur un ou plusieurs serveurs Steam et Minecraft avec personnalisation avancée.
-Version: 1.3.0
+Version: 1.3.1
 Author: Skylide
 GitHub Plugin URI: skylidefr/Steam-Server-Status-SourceQuery-PHP
 GitHub Branch: main
@@ -416,6 +416,223 @@ class SteamServerStatusPlugin {
                 <p>Texte Offline : <input type="text" class="steam-color-field" name="steam_color_text_offline" value="<?php echo esc_attr($options['color_text_offline']); ?>"></p>
                 <p>Bordure Online : <input type="text" class="steam-color-field" name="steam_color_border_online" value="<?php echo esc_attr($options['color_border_online']); ?>"></p>
                 <p>Bordure Offline : <input type="text" class="steam-color-field" name="steam_color_border_offline" value="<?php echo esc_attr($options['color_border_offline']); ?>"></p>
+
+                <h2>🔗 Intégration Discord</h2>
+<table class="form-table">
+    <tr>
+        <th scope="row">Activer les notifications Discord</th>
+        <td>
+            <label>
+                <input type="checkbox" name="discord_enable_notifications" value="1" 
+                    <?php checked(1, get_option('discord_enable_notifications', 0)); ?>>
+                Envoyer des notifications Discord lors des changements d'état
+            </label>
+        </td>
+    </tr>
+    
+    <tr>
+        <th scope="row">URL du Webhook Discord</th>
+        <td>
+            <input type="text" name="discord_webhook_url" class="regular-text" 
+                value="<?php echo esc_attr(get_option('discord_webhook_url', '')); ?>" 
+                placeholder="https://discord.com/api/webhooks/...">
+            <button type="button" id="test-discord-webhook" class="button">Tester</button>
+            <p class="description">
+                Pour créer un webhook : Paramètres du serveur Discord → Intégrations → Webhooks → Nouveau webhook
+            </p>
+        </td>
+    </tr>
+    
+    <tr>
+        <th scope="row">Nom du bot</th>
+        <td>
+            <input type="text" name="discord_bot_username" 
+                value="<?php echo esc_attr(get_option('discord_bot_username', 'Server Status Bot')); ?>" 
+                placeholder="Server Status Bot">
+        </td>
+    </tr>
+    
+    <tr>
+        <th scope="row">Avatar du bot (URL)</th>
+        <td>
+            <input type="text" name="discord_bot_avatar" class="regular-text"
+                value="<?php echo esc_attr(get_option('discord_bot_avatar', '')); ?>" 
+                placeholder="https://example.com/avatar.png">
+        </td>
+    </tr>
+</table>
+
+<h3>Types de notifications</h3>
+<table class="form-table">
+    <tr>
+        <th scope="row">Serveur hors ligne</th>
+        <td>
+            <label>
+                <input type="checkbox" name="discord_notify_offline" value="1" 
+                    <?php checked(1, get_option('discord_notify_offline', 1)); ?>>
+                Notifier quand un serveur passe hors ligne
+            </label>
+        </td>
+    </tr>
+    
+    <tr>
+        <th scope="row">Serveur en ligne</th>
+        <td>
+            <label>
+                <input type="checkbox" name="discord_notify_online" value="1" 
+                    <?php checked(1, get_option('discord_notify_online', 1)); ?>>
+                Notifier quand un serveur revient en ligne
+            </label>
+        </td>
+    </tr>
+    
+    <tr>
+        <th scope="row">Seuil de joueurs</th>
+        <td>
+            <label>
+                <input type="checkbox" name="discord_notify_player_threshold" value="1" 
+                    <?php checked(1, get_option('discord_notify_player_threshold', 0)); ?>>
+                Notifier quand le nombre de joueurs dépasse :
+                <input type="number" name="discord_player_threshold_value" 
+                    value="<?php echo intval(get_option('discord_player_threshold_value', 10)); ?>" 
+                    min="1" style="width: 60px;"> joueurs
+            </label>
+        </td>
+    </tr>
+    
+    <tr>
+        <th scope="row">Latence élevée</th>
+        <td>
+            <label>
+                <input type="checkbox" name="discord_notify_high_latency" value="1" 
+                    <?php checked(1, get_option('discord_notify_high_latency', 0)); ?>>
+                Notifier quand la latence dépasse :
+                <input type="number" name="discord_latency_threshold" 
+                    value="<?php echo intval(get_option('discord_latency_threshold', 300)); ?>" 
+                    min="50" style="width: 60px;"> ms
+            </label>
+        </td>
+    </tr>
+    
+    <tr>
+        <th scope="row">Résumé quotidien</th>
+        <td>
+            <label>
+                <input type="checkbox" name="discord_daily_summary" value="1" 
+                    <?php checked(1, get_option('discord_daily_summary', 0)); ?>>
+                Envoyer un résumé quotidien à minuit
+            </label>
+        </td>
+    </tr>
+</table>
+
+<h3>Configuration avancée</h3>
+<table class="form-table">
+    <tr>
+        <th scope="row">ID du rôle à mentionner</th>
+        <td>
+            <input type="text" name="discord_mention_role" 
+                value="<?php echo esc_attr(get_option('discord_mention_role', '')); ?>" 
+                placeholder="123456789012345678">
+            <p class="description">
+                ID du rôle Discord à mentionner lors des alertes critiques
+            </p>
+        </td>
+    </tr>
+    
+    <tr>
+        <th scope="row">Cooldown des notifications</th>
+        <td>
+            <input type="number" name="discord_notification_cooldown" 
+                value="<?php echo intval(get_option('discord_notification_cooldown', 300)); ?>" 
+                min="60" step="60"> secondes
+            <p class="description">
+                Temps minimum entre deux notifications pour le même serveur
+            </p>
+        </td>
+    </tr>
+</table>
+
+<h3>Couleurs des embeds Discord</h3>
+<table class="form-table">
+    <tr>
+        <th scope="row">Couleur Online</th>
+        <td>
+            <input type="text" class="steam-color-field" name="discord_embed_color_online" 
+                value="<?php echo esc_attr(get_option('discord_embed_color_online', '#2ecc71')); ?>">
+        </td>
+    </tr>
+    
+    <tr>
+        <th scope="row">Couleur Offline</th>
+        <td>
+            <input type="text" class="steam-color-field" name="discord_embed_color_offline" 
+                value="<?php echo esc_attr(get_option('discord_embed_color_offline', '#e74c3c')); ?>">
+        </td>
+    </tr>
+    
+    <tr>
+        <th scope="row">Couleur Avertissement</th>
+        <td>
+            <input type="text" class="steam-color-field" name="discord_embed_color_warning" 
+                value="<?php echo esc_attr(get_option('discord_embed_color_warning', '#f39c12')); ?>">
+        </td>
+    </tr>
+</table>
+
+<script>
+jQuery(document).ready(function($) {
+    // Test du webhook Discord
+    $('#test-discord-webhook').on('click', function() {
+        const button = $(this);
+        const webhookUrl = $('input[name="discord_webhook_url"]').val();
+        
+        if (!webhookUrl) {
+            alert('Veuillez entrer une URL de webhook Discord');
+            return;
+        }
+        
+        button.prop('disabled', true).text('Test en cours...');
+        
+        $.ajax({
+            url: ajaxurl,
+            method: 'POST',
+            data: {
+                action: 'test_discord_webhook',
+                webhook_url: webhookUrl,
+                nonce: '<?php echo wp_create_nonce('test_discord_webhook'); ?>'
+            },
+            success: function(response) {
+                if (response.success) {
+                    alert('✅ Test réussi ! Vérifiez votre canal Discord.');
+                } else {
+                    alert('❌ Erreur : ' + (response.data || 'Impossible de se connecter au webhook'));
+                }
+            },
+            error: function() {
+                alert('❌ Erreur de connexion');
+            },
+            complete: function() {
+                button.prop('disabled', false).text('Tester');
+            }
+        });
+    });
+    
+    // Toggle des options dépendantes
+    $('input[name="discord_enable_notifications"]').on('change', function() {
+        const isEnabled = $(this).is(':checked');
+        $('.discord-dependent').toggle(isEnabled);
+    }).trigger('change');
+    
+    $('input[name="discord_notify_player_threshold"]').on('change', function() {
+        $('input[name="discord_player_threshold_value"]').prop('disabled', !$(this).is(':checked'));
+    }).trigger('change');
+    
+    $('input[name="discord_notify_high_latency"]').on('change', function() {
+        $('input[name="discord_latency_threshold"]').prop('disabled', !$(this).is(':checked'));
+    }).trigger('change');
+});
+</script>
 
                 <h2>Police</h2>
                 <p>Police du texte : <input type="text" name="steam_font_family" value="<?php echo esc_attr($options['font_family']); ?>" placeholder="Ex: Arial, sans-serif"></p>
