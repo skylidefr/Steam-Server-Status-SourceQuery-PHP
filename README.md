@@ -32,12 +32,18 @@
 
 ## Installation
 
-### Via Git
+### Méthode 1 : Via Git
 
 ```bash
 cd wp-content/plugins/
 git clone https://github.com/skylidefr/Steam-Server-Status-SourceQuery-PHP.git
 ```
+### Méthode 2 : Téléversement depuis WordPress
+
+1. Téléchargez le plugin au format ZIP depuis [GitHub](https://github.com/skylidefr/Steam-Server-Status-SourceQuery-PHP) ou depuis WordPress.org.  
+2. Connectez-vous à votre WordPress et allez dans **Extensions → Ajouter**.  
+3. Cliquez sur **Téléverser une extension**, sélectionnez le fichier ZIP, puis cliquez sur **Installer maintenant**.  
+4. Activez le plugin après l’installation.
 
 ### Configuration
 
