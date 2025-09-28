@@ -2,7 +2,7 @@
 /*
 Plugin Name: Steam Server Status SourceQuery PHP
 Description: Affiche le nombre de joueurs connectés sur un ou plusieurs serveurs Steam et Minecraft avec personnalisation avancée.
-Version: 1.3.0
+Version: 1.3.1
 Author: Skylide
 GitHub Plugin URI: skylidefr/Steam-Server-Status-SourceQuery-PHP
 GitHub Branch: main
@@ -12,7 +12,20 @@ Author URI: https://github.com/skylidefr/Steam-Server-Status-SourceQuery-PHP/
 if (!defined('ABSPATH')) exit;
 
 // Chargement des dépendances
-require_once __DIR__ . '/SourceQuery/bootstrap.php';
+require_once __DIR__ . '/SourceQuery/BaseSocket.php';
+require_once __DIR__ . '/SourceQuery/Socket.php';
+require_once __DIR__ . '/SourceQuery/SourceQuery.php';
+require_once __DIR__ . '/SourceQuery/Buffer.php';
+require_once __DIR__ . '/SourceQuery/BaseRcon.php';
+require_once __DIR__ . '/SourceQuery/SourceRcon.php';
+require_once __DIR__ . '/SourceQuery/GoldSourceRcon.php';
+
+// Exceptions
+require_once __DIR__ . '/SourceQuery/Exception/SourceQueryException.php';
+require_once __DIR__ . '/SourceQuery/Exception/SocketException.php';
+require_once __DIR__ . '/SourceQuery/Exception/AuthenticationException.php';
+require_once __DIR__ . '/SourceQuery/Exception/InvalidArgumentException.php';
+require_once __DIR__ . '/SourceQuery/Exception/InvalidPacketException.php';
 require_once __DIR__ . '/MinecraftQuery/MinecraftQuery.php';
 require_once __DIR__ . '/MinecraftQuery/MinecraftQueryException.php';
 
