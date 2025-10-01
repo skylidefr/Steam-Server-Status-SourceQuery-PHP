@@ -4,54 +4,35 @@
  */
 
 if (!defined('ABSPATH')) {
-    exit; // Exit if accessed directly.
+    exit;
 }
 
 class SteamStatusElementorWidget extends \Elementor\Widget_Base {
     
-    /**
-     * Get widget name.
-     */
     public function get_name() {
         return 'steam-server-status';
     }
 
-    /**
-     * Get widget title.
-     */
     public function get_title() {
         return esc_html__('Server Status', 'steam-server-status');
     }
 
-    /**
-     * Get widget icon.
-     */
     public function get_icon() {
         return 'eicon-play';
     }
 
-    /**
-     * Get widget categories.
-     */
     public function get_categories() {
         return ['general'];
     }
 
-    /**
-     * Get widget keywords.
-     */
     public function get_keywords() {
         return ['steam', 'server', 'minecraft', 'gaming', 'status'];
     }
 
-    /**
-     * Register widget controls.
-     */
     protected function register_controls() {
         $plugin = SteamServerStatusPlugin::getInstance();
         $servers = $plugin->getServers();
         
-        // Créer les options de serveurs
         $server_options = [];
         $server_options['all'] = 'Tous les serveurs';
         
@@ -87,7 +68,6 @@ class SteamStatusElementorWidget extends \Elementor\Widget_Base {
                 'options' => [
                     'cards' => esc_html__('Cartes', 'steam-server-status'),
                     'table' => esc_html__('Tableau', 'steam-server-status'),
-                    'single' => esc_html__('Simple', 'steam-server-status'),
                 ],
                 'condition' => [
                     'server_selection' => 'all',
@@ -259,7 +239,6 @@ class SteamStatusElementorWidget extends \Elementor\Widget_Base {
             ]
         );
 
-        // Background controls
         $this->add_group_control(
             \Elementor\Group_Control_Background::get_type(),
             [
@@ -379,9 +358,6 @@ class SteamStatusElementorWidget extends \Elementor\Widget_Base {
         $this->end_controls_section();
     }
 
-    /**
-     * Render widget output on the frontend.
-     */
     protected function render() {
         $settings = $this->get_settings_for_display();
         $plugin = SteamServerStatusPlugin::getInstance();
@@ -389,7 +365,6 @@ class SteamStatusElementorWidget extends \Elementor\Widget_Base {
         echo '<div class="steam-server-elementor-widget">';
         
         if ($settings['server_selection'] === 'all') {
-            // Affichage de tous les serveurs
             $servers = $plugin->getServers();
             
             if (empty($servers)) {
@@ -404,7 +379,6 @@ class SteamStatusElementorWidget extends \Elementor\Widget_Base {
                 echo $this->renderAllServersCards($servers, $plugin, $settings);
             }
         } else {
-            // Affichage d'un serveur spécifique
             $server_id = intval($settings['server_selection']);
             echo $plugin->renderServerForElementor($server_id, [
                 'show_name' => $settings['show_server_name'] === '1'
@@ -414,9 +388,6 @@ class SteamStatusElementorWidget extends \Elementor\Widget_Base {
         echo '</div>';
     }
 
-    /**
-     * Render all servers as table
-     */
     private function renderAllServersTable($servers, $plugin) {
         $show_version = get_option('steam_show_version', 1);
         
@@ -431,14 +402,14 @@ class SteamStatusElementorWidget extends \Elementor\Widget_Base {
             $status = $data['online'] ? '<span class="online">Online</span>' : '<span class="offline">Offline</span>';
             $players = $data['online'] ? $data['players'] . ' / ' . $data['max'] : '0 / 0';
             
-            $game_icon = $this->getGameIcon($data['game_type'] ?? 'source_generic');
+            $game_icon = $plugin->getGameIcon($data['game_type'] ?? 'source_generic');
             $supported_games = $plugin->getSupportedGames();
-            $protocol = $this->getProtocolFromGameType($data['game_type'] ?? 'source_generic');
+            $protocol = $plugin->getProtocolFromGameType($data['game_type'] ?? 'source_generic');
             $game_name = $supported_games[$protocol][$data['game_type'] ?? 'source_generic'] ?? 'Inconnu';
             
             $latency_display = '-';
             if ($data['online'] && $data['latency'] !== null && ($server['show_latency'] ?? 0) && get_option('steam_show_latency_global', 1)) {
-                $latency_class = $this->getLatencyClass($data['latency']);
+                $latency_class = $plugin->getLatencyClass($data['latency']);
                 $latency_display = sprintf('<span class="latency %s">%dms</span>', $latency_class, $data['latency']);
             }
             
@@ -468,9 +439,6 @@ class SteamStatusElementorWidget extends \Elementor\Widget_Base {
         return $html;
     }
 
-    /**
-     * Render all servers as cards
-     */
     private function renderAllServersCards($servers, $plugin, $settings) {
         $show_version = get_option('steam_show_version', 1);
         $show_motd = get_option('steam_show_motd', 1);
@@ -483,14 +451,14 @@ class SteamStatusElementorWidget extends \Elementor\Widget_Base {
             $status = $data['online'] ? '<span class="online">Online</span>' : '<span class="offline">Offline</span>';
             $players = $data['online'] ? $data['players'] . ' / ' . $data['max'] : '0 / 0';
             
-            $game_icon = $this->getGameIcon($data['game_type'] ?? 'source_generic');
+            $game_icon = $plugin->getGameIcon($data['game_type'] ?? 'source_generic');
             $supported_games = $plugin->getSupportedGames();
-            $protocol = $this->getProtocolFromGameType($data['game_type'] ?? 'source_generic');
+            $protocol = $plugin->getProtocolFromGameType($data['game_type'] ?? 'source_generic');
             $game_name = $supported_games[$protocol][$data['game_type'] ?? 'source_generic'] ?? 'Inconnu';
             
             $latency_display = '';
             if ($data['online'] && $data['latency'] !== null && ($server['show_latency'] ?? 0) && get_option('steam_show_latency_global', 1)) {
-                $latency_class = $this->getLatencyClass($data['latency']);
+                $latency_class = $plugin->getLatencyClass($data['latency']);
                 $latency_display = sprintf(' <span class="latency %s">(%dms)</span>', $latency_class, $data['latency']);
             }
             
@@ -525,68 +493,6 @@ class SteamStatusElementorWidget extends \Elementor\Widget_Base {
         return $html;
     }
 
-    /**
-     * Get game icon emoji
-     */
-    private function getGameIcon($game_type) {
-        $icons = [
-            'source_cs2' => '🔫',
-            'source_csgo' => '🔫',
-            'source_css' => '🔫',
-            'source_tf2' => '🎯',
-            'source_l4d2' => '🧟',
-            'source_l4d' => '🧟',
-            'source_gmod' => '🔧',
-            'source_rust' => '🏕️',
-            'source_ark' => '🦖',
-            'source_7dtd' => '🧟‍♂️',
-            'source_insurgency' => '💥',
-            'source_kf' => '🔪',
-            'source_kf2' => '🔪',
-            'goldsource_cs16' => '🔫',
-            'goldsource_hl1' => '🔬',
-            'goldsource_tfc' => '🎯',
-            'goldsource_dod' => '⚔️',
-            'minecraft' => '🧱',
-            'source_generic' => '🎮',
-            'goldsource_generic' => '🕹️'
-        ];
-        
-        return $icons[$game_type] ?? '🎮';
-    }
-
-    /**
-     * Get protocol from game type
-     */
-    private function getProtocolFromGameType($game_type) {
-        if (strpos($game_type, 'minecraft') === 0) {
-            return 'minecraft';
-        } elseif (strpos($game_type, 'goldsource') === 0) {
-            return 'goldsource';
-        } else {
-            return 'source';
-        }
-    }
-
-    /**
-     * Get latency class for styling
-     */
-    private function getLatencyClass($latency) {
-        $good_threshold = intval(get_option('steam_latency_threshold_good', 80));
-        $medium_threshold = intval(get_option('steam_latency_threshold_medium', 200));
-        
-        if ($latency <= $good_threshold) {
-            return 'good';
-        } elseif ($latency <= $medium_threshold) {
-            return 'medium';
-        } else {
-            return 'bad';
-        }
-    }
-
-    /**
-     * Render widget output in the editor.
-     */
     protected function content_template() {
         ?>
         <#
@@ -602,7 +508,7 @@ class SteamStatusElementorWidget extends \Elementor\Widget_Base {
                 <# } else { #>
                     <div class="steam-status online">
                         <# if ( showName === '1' ) { #>
-                            <span class="server-name">🎮 Exemple Serveur</span>
+                            <span class="server-name">Exemple Serveur</span>
                         <# } #>
                         <span class="label">Joueurs connectés :</span>
                         <span class="players">12</span>
@@ -613,7 +519,7 @@ class SteamStatusElementorWidget extends \Elementor\Widget_Base {
             <# } else { #>
                 <div class="steam-status online">
                     <# if ( showName === '1' ) { #>
-                        <span class="server-name">🎮 Serveur Exemple</span>
+                        <span class="server-name">Serveur Exemple</span>
                     <# } #>
                     <span class="label">Joueurs connectés :</span>
                     <span class="players">8</span>

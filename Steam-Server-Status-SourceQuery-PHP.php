@@ -2,7 +2,7 @@
 /*
 Plugin Name: Steam Server Status SourceQuery PHP
 Description: Affiche le nombre de joueurs connectés sur un ou plusieurs serveurs Steam et Minecraft avec personnalisation avancée.
-Version: 1.3.1
+Version: 1.4.0
 Author: Skylide
 GitHub Plugin URI: skylidefr/Steam-Server-Status-SourceQuery-PHP
 GitHub Branch: main
@@ -19,8 +19,6 @@ require_once __DIR__ . '/SourceQuery/Buffer.php';
 require_once __DIR__ . '/SourceQuery/BaseRcon.php';
 require_once __DIR__ . '/SourceQuery/SourceRcon.php';
 require_once __DIR__ . '/SourceQuery/GoldSourceRcon.php';
-
-// Exceptions
 require_once __DIR__ . '/SourceQuery/Exception/SourceQueryException.php';
 require_once __DIR__ . '/SourceQuery/Exception/SocketException.php';
 require_once __DIR__ . '/SourceQuery/Exception/AuthenticationException.php';
@@ -84,9 +82,6 @@ class SteamServerStatusPlugin {
         $this->init();
     }
     
-    /**
-     * Récupère la version du plugin depuis l'en-tête
-     */
     private function getVersion() {
         if (!isset($this->version)) {
             $plugin_data = get_plugin_data($this->plugin_file);
@@ -111,14 +106,37 @@ class SteamServerStatusPlugin {
         add_action('elementor/editor/before_enqueue_scripts', [$this, 'enqueueElementorEditorAssets']);
         add_action('elementor/frontend/after_enqueue_styles', [$this, 'enqueueElementorFrontendAssets']);
         
+        // AJAX Handlers
+        add_action('wp_ajax_test_discord_webhook', [$this, 'ajaxTestDiscordWebhook']);
+        add_action('wp_ajax_test_server_connection', [$this, 'ajaxTestServerConnection']);
+        
         // Système de mise à jour GitHub
         if (is_admin()) {
             new SteamStatusGitHubUpdater($this->plugin_file);
         }
+        
+        // Cron pour notifications Discord
+        add_action('steam_status_check_servers', [$this, 'checkServersStatus']);
+        add_action('steam_status_daily_summary', [$this, 'sendDailySummary']);
+        
+        if (!wp_next_scheduled('steam_status_check_servers')) {
+            wp_schedule_event(time(), 'every_minute', 'steam_status_check_servers');
+        }
+        
+        if (!wp_next_scheduled('steam_status_daily_summary')) {
+            wp_schedule_event(strtotime('tomorrow midnight'), 'daily', 'steam_status_daily_summary');
+        }
     }
     
     public function initPlugin() {
-        // Actions d'initialisation si nécessaire
+        // Enregistrer l'intervalle personnalisé
+        add_filter('cron_schedules', function($schedules) {
+            $schedules['every_minute'] = [
+                'interval' => 60,
+                'display' => __('Chaque minute')
+            ];
+            return $schedules;
+        });
     }
     
     public function registerElementorWidget() {
@@ -158,15 +176,20 @@ class SteamServerStatusPlugin {
     
     public function registerSettings() {
         $settings = [
+            // Paramètres serveurs
             'steam_servers',
             'steam_show_name',
             'steam_cache_duration',
+            
+            // Textes personnalisables
             'steam_text_offline',
             'steam_text_no_servers',
             'steam_text_not_found',
             'steam_text_players',
             'steam_text_separator',
             'steam_text_no_players',
+            
+            // Couleurs et styles
             'steam_use_text_colors',
             'steam_use_border_colors',
             'steam_color_text_online',
@@ -176,19 +199,63 @@ class SteamServerStatusPlugin {
             'steam_font_family',
             'steam_font_size',
             'steam_all_display_default',
+            
             // Options latence
             'steam_show_latency_global',
             'steam_latency_cache_duration',
             'steam_latency_threshold_good',
             'steam_latency_threshold_medium',
-            // Nouvelles options Minecraft
+            
+            // Options Minecraft
             'steam_show_motd',
-            'steam_show_version'
+            'steam_show_version',
+            
+            // Options Discord
+            'discord_enable_notifications',
+            'discord_webhook_url',
+            'discord_bot_username',
+            'discord_bot_avatar',
+            'discord_notify_offline',
+            'discord_notify_online',
+            'discord_notify_player_threshold',
+            'discord_player_threshold_value',
+            'discord_notify_high_latency',
+            'discord_latency_threshold',
+            'discord_daily_summary',
+            'discord_mention_role',
+            'discord_notification_cooldown',
+            'discord_embed_color_online',
+            'discord_embed_color_offline',
+            'discord_embed_color_warning',
         ];
         
         foreach ($settings as $setting) {
-            register_setting('steam_status_options_group', $setting);
+            register_setting('steam_status_options_group', $setting, [
+                'sanitize_callback' => [$this, 'sanitizeOption']
+            ]);
         }
+    }
+    
+    public function sanitizeOption($value) {
+        if (is_array($value)) {
+            return array_map([$this, 'sanitizeOption'], $value);
+        }
+        
+        if (is_string($value)) {
+            // Nettoyer les URLs webhook Discord
+            if (strpos($value, 'discord.com/api/webhooks') !== false) {
+                return esc_url_raw($value);
+            }
+            
+            // Nettoyer les couleurs hex
+            if (preg_match('/^#[a-f0-9]{6}$/i', $value)) {
+                return sanitize_hex_color($value);
+            }
+            
+            return sanitize_text_field($value);
+        }
+        
+        return $value;
     }
     
     public function enqueueAdminAssets($hook) {
@@ -205,42 +272,533 @@ class SteamServerStatusPlugin {
             true
         );
         
-        wp_add_inline_script('wp-color-picker', $this->getAdminScript());
+        wp_localize_script('steam-admin-js', 'steamAdminData', [
+            'ajaxUrl' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('steam_admin_actions'),
+            'gameOptions' => $this->getGameOptionsHtml()
+        ]);
+    }
+    // MÉTHODES AJAX
+    
+    public function ajaxTestDiscordWebhook() {
+        check_ajax_referer('steam_admin_actions', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Permissions insuffisantes');
+        }
+        
+        $webhook_url = isset($_POST['webhook_url']) ? esc_url_raw($_POST['webhook_url']) : '';
+        
+        if (empty($webhook_url)) {
+            wp_send_json_error('URL du webhook manquante');
+        }
+        
+        $result = $this->sendDiscordMessage($webhook_url, [
+            'username' => 'Server Status Bot',
+            'embeds' => [[
+                'title' => '✅ Test de connexion réussi',
+                'description' => 'Le webhook Discord fonctionne correctement !',
+                'color' => hexdec(str_replace('#', '', '#2ecc71')),
+                'timestamp' => date('c'),
+                'footer' => ['text' => 'Steam Server Status Plugin']
+            ]]
+        ]);
+        
+        if ($result) {
+            wp_send_json_success('Webhook testé avec succès');
+        } else {
+            wp_send_json_error('Impossible de se connecter au webhook');
+        }
     }
     
-    private function getAdminScript() {
-        return "
-        jQuery(document).ready(function($){
-            $('.steam-color-field').wpColorPicker();
+    public function ajaxTestServerConnection() {
+        check_ajax_referer('steam_admin_actions', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error('Permissions insuffisantes');
+        }
+        
+        $ip = isset($_POST['ip']) ? sanitize_text_field($_POST['ip']) : '';
+        $port = isset($_POST['port']) ? intval($_POST['port']) : 0;
+        $game_type = isset($_POST['game_type']) ? sanitize_text_field($_POST['game_type']) : 'source_generic';
+        
+        if (empty($ip) || $port <= 0) {
+            wp_send_json_error('IP ou port invalide');
+        }
+        
+        $server = [
+            'ip' => $ip,
+            'port' => $port,
+            'game_type' => $game_type,
+            'name' => 'Test'
+        ];
+        
+        $data = $this->queryServer($server);
+        
+        if ($data['online']) {
+            wp_send_json_success([
+                'message' => 'Connexion réussie',
+                'players' => $data['players'],
+                'max' => $data['max'],
+                'latency' => $data['latency'],
+                'version' => $data['version']
+            ]);
+        } else {
+            wp_send_json_error('Impossible de se connecter au serveur');
+        }
+    }
+    
+    // MÉTHODES DISCORD
+    
+    private function sendDiscordMessage($webhook_url, $data) {
+        if (empty($webhook_url)) return false;
+        
+        $response = wp_remote_post($webhook_url, [
+            'headers' => ['Content-Type' => 'application/json'],
+            'body' => json_encode($data),
+            'timeout' => 10
+        ]);
+        
+        return !is_wp_error($response) && wp_remote_retrieve_response_code($response) === 204;
+    }
+    
+    public function checkServersStatus() {
+        if (!get_option('discord_enable_notifications', 0)) {
+            return;
+        }
+        
+        $servers = get_option('steam_servers', []);
+        $webhook_url = get_option('discord_webhook_url', '');
+        
+        if (empty($webhook_url) || !is_array($servers)) {
+            return;
+        }
+        
+        foreach ($servers as $id => $server) {
+            $this->checkSingleServerStatus($id, $server, $webhook_url);
+        }
+    }
+    
+    private function checkSingleServerStatus($id, $server, $webhook_url) {
+        $previous_state = get_transient('steam_server_state_' . $id);
+        $cooldown = get_transient('steam_discord_cooldown_' . $id);
+        
+        // Si en cooldown, ne pas notifier
+        if ($cooldown !== false) {
+            return;
+        }
+        
+        $current_data = $this->queryServer($server);
+        $current_state = [
+            'online' => $current_data['online'],
+            'players' => $current_data['players'],
+            'latency' => $current_data['latency']
+        ];
+        
+        // Première vérification, sauvegarder l'état
+        if ($previous_state === false) {
+            set_transient('steam_server_state_' . $id, $current_state, 86400);
+            return;
+        }
+        
+        $notify = false;
+        $notification_type = '';
+        
+        // Vérifier changement d'état online/offline
+        if ($previous_state['online'] !== $current_state['online']) {
+            if (!$current_state['online'] && get_option('discord_notify_offline', 1)) {
+                $notify = true;
+                $notification_type = 'offline';
+            } elseif ($current_state['online'] && get_option('discord_notify_online', 1)) {
+                $notify = true;
+                $notification_type = 'online';
+            }
+        }
+        
+        // Vérifier seuil de joueurs
+        if ($current_state['online'] && get_option('discord_notify_player_threshold', 0)) {
+            $threshold = intval(get_option('discord_player_threshold_value', 10));
+            if ($current_state['players'] >= $threshold && $previous_state['players'] < $threshold) {
+                $notify = true;
+                $notification_type = 'player_threshold';
+            }
+        }
+        
+        // Vérifier latence élevée
+        if ($current_state['online'] && get_option('discord_notify_high_latency', 0) && $current_state['latency']) {
+            $threshold = intval(get_option('discord_latency_threshold', 300));
+            if ($current_state['latency'] >= $threshold) {
+                $notify = true;
+                $notification_type = 'high_latency';
+            }
+        }
+        
+        if ($notify) {
+            $this->sendServerNotification($server, $current_state, $notification_type, $webhook_url);
             
-            function attachRemoveEvents(){
-                $('.remove-server').off('click').on('click', function(){
-                    $(this).closest('tr').remove();
-                });
+            // Appliquer le cooldown
+            $cooldown_duration = intval(get_option('discord_notification_cooldown', 300));
+            set_transient('steam_discord_cooldown_' . $id, true, $cooldown_duration);
+        }
+        
+        // Mettre à jour l'état
+        set_transient('steam_server_state_' . $id, $current_state, 86400);
+    }
+    
+    private function sendServerNotification($server, $state, $type, $webhook_url) {
+        $bot_username = get_option('discord_bot_username', 'Server Status Bot');
+        $bot_avatar = get_option('discord_bot_avatar', '');
+        $mention_role = get_option('discord_mention_role', '');
+        
+        $embed = $this->buildDiscordEmbed($server, $state, $type);
+        
+        $message = [
+            'username' => $bot_username,
+            'embeds' => [$embed]
+        ];
+        
+        if (!empty($bot_avatar)) {
+            $message['avatar_url'] = $bot_avatar;
+        }
+        
+        if (!empty($mention_role) && in_array($type, ['offline', 'high_latency'])) {
+            $message['content'] = '<@&' . $mention_role . '>';
+        }
+        
+        $this->sendDiscordMessage($webhook_url, $message);
+    }
+    
+    private function buildDiscordEmbed($server, $state, $type) {
+        $color_online = get_option('discord_embed_color_online', '#2ecc71');
+        $color_offline = get_option('discord_embed_color_offline', '#e74c3c');
+        $color_warning = get_option('discord_embed_color_warning', '#f39c12');
+        
+        $embed = [
+            'timestamp' => date('c'),
+            'footer' => ['text' => 'Steam Server Status']
+        ];
+        
+        switch ($type) {
+            case 'offline':
+                $embed['title'] = '🔴 Serveur hors ligne';
+                $embed['description'] = "Le serveur **{$server['name']}** est maintenant hors ligne.";
+                $embed['color'] = hexdec(str_replace('#', '', $color_offline));
+                break;
+                
+            case 'online':
+                $embed['title'] = '🟢 Serveur en ligne';
+                $embed['description'] = "Le serveur **{$server['name']}** est de retour en ligne !";
+                $embed['color'] = hexdec(str_replace('#', '', $color_online));
+                $embed['fields'] = [
+                    [
+                        'name' => 'Joueurs',
+                        'value' => $state['players'] . ' joueurs connectés',
+                        'inline' => true
+                    ]
+                ];
+                if ($state['latency']) {
+                    $embed['fields'][] = [
+                        'name' => 'Latence',
+                        'value' => $state['latency'] . 'ms',
+                        'inline' => true
+                    ];
+                }
+                break;
+                
+            case 'player_threshold':
+                $threshold = intval(get_option('discord_player_threshold_value', 10));
+                $embed['title'] = '👥 Seuil de joueurs atteint';
+                $embed['description'] = "Le serveur **{$server['name']}** a atteint {$state['players']} joueurs (seuil: {$threshold}).";
+                $embed['color'] = hexdec(str_replace('#', '', $color_online));
+                break;
+                
+            case 'high_latency':
+                $threshold = intval(get_option('discord_latency_threshold', 300));
+                $embed['title'] = '⚠️ Latence élevée';
+                $embed['description'] = "Le serveur **{$server['name']}** a une latence de {$state['latency']}ms (seuil: {$threshold}ms).";
+                $embed['color'] = hexdec(str_replace('#', '', $color_warning));
+                break;
+        }
+        
+        $embed['fields'][] = [
+            'name' => 'Serveur',
+            'value' => $server['ip'] . ':' . $server['port'],
+            'inline' => false
+        ];
+        
+        return $embed;
+    }
+    
+    public function sendDailySummary() {
+        if (!get_option('discord_enable_notifications', 0) || !get_option('discord_daily_summary', 0)) {
+            return;
+        }
+        
+        $webhook_url = get_option('discord_webhook_url', '');
+        if (empty($webhook_url)) return;
+        
+        $servers = get_option('steam_servers', []);
+        if (!is_array($servers) || empty($servers)) return;
+        
+        $fields = [];
+        $total_players = 0;
+        $online_count = 0;
+        
+        foreach ($servers as $id => $server) {
+            $data = $this->queryServer($server);
+            
+            if ($data['online']) {
+                $online_count++;
+                $total_players += $data['players'];
+                $status = '🟢 En ligne';
+                $info = "{$data['players']}/{$data['max']} joueurs";
+                if ($data['latency']) {
+                    $info .= " | {$data['latency']}ms";
+                }
+            } else {
+                $status = '🔴 Hors ligne';
+                $info = 'Indisponible';
             }
             
-            attachRemoveEvents();
+            $fields[] = [
+                'name' => $server['name'],
+                'value' => $status . ' - ' . $info,
+                'inline' => false
+            ];
+        }
+        
+        $embed = [
+            'title' => '📊 Résumé quotidien des serveurs',
+            'description' => "**{$online_count}** serveur(s) en ligne sur **" . count($servers) . "**\n**{$total_players}** joueurs au total",
+            'color' => hexdec(str_replace('#', '', get_option('discord_embed_color_online', '#2ecc71'))),
+            'fields' => $fields,
+            'timestamp' => date('c'),
+            'footer' => ['text' => 'Résumé quotidien']
+        ];
+        
+        $this->sendDiscordMessage($webhook_url, [
+            'username' => get_option('discord_bot_username', 'Server Status Bot'),
+            'embeds' => [$embed]
+        ]);
+    }
+    // MÉTHODES PUBLIQUES pour Elementor et external access
+    
+    public function getServerDataCached($server, $id) {
+        $cache_key = 'steam_status_' . $id;
+        $latency_cache_key = 'steam_latency_' . $id;
+        
+        $cache_duration = intval(get_option('steam_cache_duration', 15));
+        $latency_cache_duration = intval(get_option('steam_latency_cache_duration', 5));
+        
+        $data = get_transient($cache_key);
+        $latency = get_transient($latency_cache_key);
+        
+        if ($data === false) {
+            $data = $this->queryServer($server);
+            if (empty($data['name']) && !empty($server['name'])) {
+                $data['name'] = $server['name'];
+            }
             
-            $('#add-server').on('click', function(){
-                const table = $('#steam-servers-table tbody');
-                const index = table.find('tr').length;
-                const gameOptions = " . json_encode($this->getGameOptionsHtml()) . ";
-                const row = `
-                    <tr>
-                        <td><input type=\"text\" name=\"steam_servers[\${index}][name]\" placeholder=\"Nom du serveur\"></td>
-                        <td>
-                            <select name=\"steam_servers[\${index}][game_type]\">\${gameOptions}</select>
-                        </td>
-                        <td><input type=\"text\" name=\"steam_servers[\${index}][ip]\" placeholder=\"45.90.160.141\"></td>
-                        <td><input type=\"number\" name=\"steam_servers[\${index}][port]\" placeholder=\"27015\"></td>
-                        <td><input type=\"checkbox\" name=\"steam_servers[\${index}][show_latency]\" value=\"1\"></td>
-                        <td><button type=\"button\" class=\"button remove-server\">❌</button></td>
-                    </tr>
-                `;
-                table.append(row);
-                attachRemoveEvents();
-            });
-        });";
+            $latency_data = $data['latency'];
+            unset($data['latency']);
+            
+            set_transient($cache_key, $data, $cache_duration);
+            set_transient($latency_cache_key, $latency_data, $latency_cache_duration);
+            
+            $data['latency'] = $latency_data;
+        } else {
+            if ($latency === false && $data['online']) {
+                $temp_data = $this->queryServer($server);
+                $latency = $temp_data['latency'] ?? null;
+                set_transient($latency_cache_key, $latency, $latency_cache_duration);
+            }
+            $data['latency'] = $latency;
+        }
+        
+        return $data;
+    }
+    
+    public function getGameIcon($game_type) {
+        $icons = [
+            'source_cs2' => '🔫',
+            'source_csgo' => '🔫',
+            'source_css' => '🔫',
+            'source_tf2' => '🎯',
+            'source_l4d2' => '🧟',
+            'source_l4d' => '🧟',
+            'source_gmod' => '🔧',
+            'source_rust' => '🏕️',
+            'source_ark' => '🦖',
+            'source_7dtd' => '🧟‍♂️',
+            'source_insurgency' => '💥',
+            'source_kf' => '🔪',
+            'source_kf2' => '🔪',
+            'goldsource_cs16' => '🔫',
+            'goldsource_hl1' => '🔬',
+            'goldsource_tfc' => '🎯',
+            'goldsource_dod' => '⚔️',
+            'minecraft' => '🧱',
+            'source_generic' => '🎮',
+            'goldsource_generic' => '🕹️'
+        ];
+        
+        return $icons[$game_type] ?? '🎮';
+    }
+    
+    public function getLatencyClass($latency) {
+        $good_threshold = intval(get_option('steam_latency_threshold_good', 80));
+        $medium_threshold = intval(get_option('steam_latency_threshold_medium', 200));
+        
+        if ($latency <= $good_threshold) {
+            return 'good';
+        } elseif ($latency <= $medium_threshold) {
+            return 'medium';
+        } else {
+            return 'bad';
+        }
+    }
+    
+    public function getProtocolFromGameType($game_type) {
+        if (strpos($game_type, 'minecraft') === 0) {
+            return 'minecraft';
+        } elseif (strpos($game_type, 'goldsource') === 0) {
+            return 'goldsource';
+        } else {
+            return 'source';
+        }
+    }
+    
+    public function getSupportedGames() {
+        return $this->supported_games;
+    }
+    
+    public function getServers() {
+        return get_option('steam_servers', []);
+    }
+    
+    public function renderServerForElementor($server_id, $options = []) {
+        $servers = get_option('steam_servers', []);
+        if (!isset($servers[$server_id])) {
+            return $this->renderOfflineStatus('Serveur introuvable');
+        }
+        
+        $server = $servers[$server_id];
+        $data = $this->getServerDataCached($server, $server_id);
+        
+        return $this->renderServerStatus($data, $server_id, $options['show_name'] ?? 1);
+    }
+    
+    // MÉTHODES PRIVÉES
+    
+    private function queryServer($server) {
+        $game_type = $server['game_type'] ?? 'source_generic';
+        $protocol = $this->getProtocolFromGameType($game_type);
+        
+        $result = [
+            'error' => false,
+            'online' => false,
+            'players' => 0,
+            'max' => 0,
+            'name' => $server['name'] ?? '',
+            'latency' => null,
+            'game_type' => $game_type,
+            'protocol' => $protocol,
+            'version' => null,
+            'motd' => null
+        ];
+        
+        try {
+            if ($protocol === 'minecraft') {
+                $result = $this->queryMinecraftServer($server, $result);
+            } else {
+                $result = $this->querySourceServer($server, $result, $protocol);
+            }
+        } catch (Exception $e) {
+            error_log('Server Query Error for ' . $server['name'] . ': ' . $e->getMessage());
+            $result['error'] = true;
+            $result['online'] = false;
+        }
+        
+        return $result;
+    }
+    
+    private function queryMinecraftServer($server, $result) {
+        $latencies = [];
+        $timeout = 1;
+        
+        for ($i = 0; $i < 3; $i++) {
+            $start_time = microtime(true);
+            
+            $query = new MinecraftQuery();
+            $query->Connect($server['ip'], $server['port'], $timeout);
+            $info = $query->GetInfo();
+            
+            $end_time = microtime(true);
+            $latencies[] = ($end_time - $start_time) * 1000;
+            
+            if ($i < 2) usleep(100000);
+        }
+        
+        $query = new MinecraftQuery();
+        $query->Connect($server['ip'], $server['port'], $timeout);
+        $info = $query->GetInfo();
+        
+        if ($info) {
+            $result['online'] = true;
+            $result['players'] = intval($info['Players'] ?? 0);
+            $result['max'] = intval($info['MaxPlayers'] ?? 0);
+            $result['version'] = $info['Version'] ?? null;
+            $result['motd'] = $this->cleanMinecraftMotd($info['HostName'] ?? null);
+            $result['latency'] = round(array_sum($latencies) / count($latencies));
+        }
+        
+        return $result;
+    }
+    
+    private function querySourceServer($server, $result, $protocol) {
+        $latencies = [];
+        $timeout = 1;
+        $query = new SourceQuery();
+        
+        $source_protocol = ($protocol === 'goldsource') ? SourceQuery::GOLDSOURCE : SourceQuery::SOURCE;
+        
+        for ($i = 0; $i < 3; $i++) {
+            $start_time = microtime(true);
+            
+            $query->Connect($server['ip'], $server['port'], $timeout, $source_protocol);
+            $info = $query->GetInfo();
+            
+            $end_time = microtime(true);
+            $latencies[] = ($end_time - $start_time) * 1000;
+            
+            $query->Disconnect();
+            if ($i < 2) usleep(100000);
+        }
+        
+        $query->Connect($server['ip'], $server['port'], $timeout, $source_protocol);
+        $info = $query->GetInfo();
+        
+        $result['online'] = true;
+        $result['players'] = intval($info['Players'] ?? 0);
+        $result['max'] = intval($info['MaxPlayers'] ?? 0);
+        $result['version'] = $info['Version'] ?? null;
+        $result['latency'] = round(array_sum($latencies) / count($latencies));
+        
+        $query->Disconnect();
+        
+        return $result;
+    }
+    
+    private function cleanMinecraftMotd($motd) {
+        if (!$motd) return null;
+        
+        $motd = preg_replace('/§[0-9a-fk-or]/', '', $motd);
+        
+        if (is_array($motd)) {
+            $motd = isset($motd['text']) ? $motd['text'] : '';
+        }
+        
+        return trim($motd);
     }
     
     private function getGameOptionsHtml() {
@@ -249,18 +807,33 @@ class SteamServerStatusPlugin {
             $label = ucfirst($engine) . ' Engine';
             if ($engine === 'minecraft') $label = 'Minecraft';
             
-            $html .= '<optgroup label="' . $label . '">';
+            $html .= '<optgroup label="' . esc_attr($label) . '">';
             foreach ($games as $key => $name) {
-                $html .= '<option value="' . $key . '">' . $name . '</option>';
+                $html .= '<option value="' . esc_attr($key) . '">' . esc_html($name) . '</option>';
             }
             $html .= '</optgroup>';
         }
         return $html;
     }
     
-    public function addFrontendStyles() {
-        $options = $this->getOptions();
-        $this->renderInlineCSS($options);
+    private function renderGameOptions($selected = '') {
+        $html = '';
+        foreach ($this->supported_games as $engine => $games) {
+            $label = ucfirst($engine) . ' Engine';
+            if ($engine === 'minecraft') $label = 'Minecraft';
+            
+            $html .= '<optgroup label="' . esc_attr($label) . '">';
+            foreach ($games as $key => $name) {
+                $html .= sprintf(
+                    '<option value="%s" %s>%s</option>',
+                    esc_attr($key),
+                    selected($selected, $key, false),
+                    esc_html($name)
+                );
+            }
+            $html .= '</optgroup>';
+        }
+        return $html;
     }
     
     private function getOptions() {
@@ -274,6 +847,39 @@ class SteamServerStatusPlugin {
             'color_border_online' => get_option('steam_color_border_online', '#2ecc71'),
             'color_border_offline' => get_option('steam_color_border_offline', '#e74c3c'),
         ];
+    }
+    
+    private function getAllOptions() {
+        return [
+            'show_name' => get_option('steam_show_name', 1),
+            'cache_duration' => intval(get_option('steam_cache_duration', 15)),
+            'text_offline' => get_option('steam_text_offline', 'Serveur injoignable'),
+            'text_no_servers' => get_option('steam_text_no_servers', 'Aucun serveur configuré'),
+            'text_not_found' => get_option('steam_text_not_found', 'Serveur introuvable'),
+            'text_players' => get_option('steam_text_players', 'Joueurs connectés :'),
+            'text_separator' => get_option('steam_text_separator', '/'),
+            'text_no_players' => get_option('steam_text_no_players', 'Aucun joueur en ligne'),
+            'use_text_colors' => get_option('steam_use_text_colors', 1),
+            'use_border_colors' => get_option('steam_use_border_colors', 1),
+            'color_text_online' => get_option('steam_color_text_online', '#2ecc71'),
+            'color_text_offline' => get_option('steam_color_text_offline', '#e74c3c'),
+            'color_border_online' => get_option('steam_color_border_online', '#2ecc71'),
+            'color_border_offline' => get_option('steam_color_border_offline', '#e74c3c'),
+            'font_family' => get_option('steam_font_family', 'Arial, sans-serif'),
+            'font_size' => intval(get_option('steam_font_size', 14)),
+            'all_display_default' => get_option('steam_all_display_default', 'table'),
+            'show_latency_global' => get_option('steam_show_latency_global', 1),
+            'latency_cache_duration' => intval(get_option('steam_latency_cache_duration', 5)),
+            'latency_threshold_good' => intval(get_option('steam_latency_threshold_good', 80)),
+            'latency_threshold_medium' => intval(get_option('steam_latency_threshold_medium', 200)),
+            'show_motd' => get_option('steam_show_motd', 1),
+            'show_version' => get_option('steam_show_version', 1),
+        ];
+    }
+    
+    public function addFrontendStyles() {
+        $options = $this->getOptions();
+        $this->renderInlineCSS($options);
     }
     
     private function renderInlineCSS($options) {
@@ -352,378 +958,12 @@ class SteamServerStatusPlugin {
         </style>";
     }
     
-    public function renderSettingsPage() {
-        $servers = get_option('steam_servers', []);
-        if (!is_array($servers)) $servers = [];
-        
-        $options = $this->getAllOptions();
-        ?>
-        <div class="wrap">
-            <h1>🎮 Réglages - Steam & Minecraft Server Status</h1>
-            <form method="post" action="options.php">
-                <?php settings_fields('steam_status_options_group'); ?>
-
-                <h2>Configuration des serveurs</h2>
-                <table class="form-table" id="steam-servers-table">
-                    <thead>
-                        <tr>
-                            <th>Nom</th>
-                            <th>Type de jeu</th>
-                            <th>Adresse IP</th>
-                            <th>Port</th>
-                            <th>Afficher latence</th>
-                            <th>Supprimer</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                    <?php foreach ($servers as $index => $server): ?>
-                        <tr>
-                            <td><input type="text" name="steam_servers[<?php echo $index; ?>][name]" value="<?php echo esc_attr($server['name']); ?>" placeholder="Nom du serveur"></td>
-                            <td>
-                                <select name="steam_servers[<?php echo $index; ?>][game_type]">
-                                    <?php echo $this->renderGameOptions($server['game_type'] ?? 'source_generic'); ?>
-                                </select>
-                            </td>
-                            <td><input type="text" name="steam_servers[<?php echo $index; ?>][ip]" value="<?php echo esc_attr($server['ip']); ?>" placeholder="45.90.160.141"></td>
-                            <td><input type="number" name="steam_servers[<?php echo $index; ?>][port]" value="<?php echo esc_attr($server['port']); ?>" placeholder="27015"></td>
-                            <td><input type="checkbox" name="steam_servers[<?php echo $index; ?>][show_latency]" value="1" <?php checked(1, $server['show_latency'] ?? 0); ?>></td>
-                            <td><button type="button" class="button remove-server">❌</button></td>
-                        </tr>
-                    <?php endforeach; ?>
-                    </tbody>
-                </table>
-                <p><button type="button" class="button" id="add-server">➕ Ajouter un serveur</button></p>
-
-                <h2>Options d'affichage</h2>
-                <p><label><input type="checkbox" name="steam_show_name" value="1" <?php checked(1, $options['show_name']); ?>> Afficher le nom du serveur en front</label></p>
-                
-                <h2>Options Minecraft</h2>
-                <p><label><input type="checkbox" name="steam_show_motd" value="1" <?php checked(1, $options['show_motd']); ?>> Afficher le MOTD des serveurs Minecraft</label></p>
-                <p><label><input type="checkbox" name="steam_show_version" value="1" <?php checked(1, $options['show_version']); ?>> Afficher la version des serveurs</label></p>
-
-                <h2>Configuration Latence</h2>
-                <p><label><input type="checkbox" name="steam_show_latency_global" value="1" <?php checked(1, $options['show_latency_global']); ?>> Activer l'affichage de la latence globalement</label></p>
-                <p><label>Cache latence (secondes) : <input type="number" name="steam_latency_cache_duration" value="<?php echo esc_attr($options['latency_cache_duration']); ?>" min="5" step="5"></label></p>
-                <p><label>Seuil "Bonne" latence (ms) : <input type="number" name="steam_latency_threshold_good" value="<?php echo esc_attr($options['latency_threshold_good']); ?>" min="1"></label></p>
-                <p><label>Seuil "Moyenne" latence (ms) : <input type="number" name="steam_latency_threshold_medium" value="<?php echo esc_attr($options['latency_threshold_medium']); ?>" min="1"></label></p>
-
-                <h2>Cache</h2>
-                <p><label>Durée du cache serveur (en secondes) : <input type="number" name="steam_cache_duration" value="<?php echo esc_attr($options['cache_duration']); ?>" min="5" step="5"></label></p>
-
-                <h2>Textes personnalisables</h2>
-                <table class="form-table">
-                    <tr><th>Serveur injoignable</th><td><input type="text" name="steam_text_offline" value="<?php echo esc_attr($options['text_offline']); ?>"></td></tr>
-                    <tr><th>Aucun serveur configuré</th><td><input type="text" name="steam_text_no_servers" value="<?php echo esc_attr($options['text_no_servers']); ?>"></td></tr>
-                    <tr><th>Serveur introuvable</th><td><input type="text" name="steam_text_not_found" value="<?php echo esc_attr($options['text_not_found']); ?>"></td></tr>
-                    <tr><th>"Joueurs connectés"</th><td><input type="text" name="steam_text_players" value="<?php echo esc_attr($options['text_players']); ?>"></td></tr>
-                    <tr><th>Séparateur joueurs/max</th><td><input type="text" name="steam_text_separator" value="<?php echo esc_attr($options['text_separator']); ?>"></td></tr>
-                    <tr><th>Aucun joueur</th><td><input type="text" name="steam_text_no_players" value="<?php echo esc_attr($options['text_no_players']); ?>"></td></tr>
-                </table>
-
-                <h2>Style Online / Offline</h2>
-                <p><label><input type="checkbox" name="steam_use_text_colors" value="1" <?php checked(1, $options['use_text_colors']); ?>> Activer la couleur du texte</label></p>
-                <p><label><input type="checkbox" name="steam_use_border_colors" value="1" <?php checked(1, $options['use_border_colors']); ?>> Activer la couleur de la bordure</label></p>
-
-                <h2>Couleurs Online / Offline</h2>
-                <p>Texte Online : <input type="text" class="steam-color-field" name="steam_color_text_online" value="<?php echo esc_attr($options['color_text_online']); ?>"></p>
-                <p>Texte Offline : <input type="text" class="steam-color-field" name="steam_color_text_offline" value="<?php echo esc_attr($options['color_text_offline']); ?>"></p>
-                <p>Bordure Online : <input type="text" class="steam-color-field" name="steam_color_border_online" value="<?php echo esc_attr($options['color_border_online']); ?>"></p>
-                <p>Bordure Offline : <input type="text" class="steam-color-field" name="steam_color_border_offline" value="<?php echo esc_attr($options['color_border_offline']); ?>"></p>
-
-                <h2>🔗 Intégration Discord</h2>
-<table class="form-table">
-    <tr>
-        <th scope="row">Activer les notifications Discord</th>
-        <td>
-            <label>
-                <input type="checkbox" name="discord_enable_notifications" value="1" 
-                    <?php checked(1, get_option('discord_enable_notifications', 0)); ?>>
-                Envoyer des notifications Discord lors des changements d'état
-            </label>
-        </td>
-    </tr>
+    // SHORTCODES
     
-    <tr>
-        <th scope="row">URL du Webhook Discord</th>
-        <td>
-            <input type="text" name="discord_webhook_url" class="regular-text" 
-                value="<?php echo esc_attr(get_option('discord_webhook_url', '')); ?>" 
-                placeholder="https://discord.com/api/webhooks/...">
-            <button type="button" id="test-discord-webhook" class="button">Tester</button>
-            <p class="description">
-                Pour créer un webhook : Paramètres du serveur Discord → Intégrations → Webhooks → Nouveau webhook
-            </p>
-        </td>
-    </tr>
-    
-    <tr>
-        <th scope="row">Nom du bot</th>
-        <td>
-            <input type="text" name="discord_bot_username" 
-                value="<?php echo esc_attr(get_option('discord_bot_username', 'Server Status Bot')); ?>" 
-                placeholder="Server Status Bot">
-        </td>
-    </tr>
-    
-    <tr>
-        <th scope="row">Avatar du bot (URL)</th>
-        <td>
-            <input type="text" name="discord_bot_avatar" class="regular-text"
-                value="<?php echo esc_attr(get_option('discord_bot_avatar', '')); ?>" 
-                placeholder="https://example.com/avatar.png">
-        </td>
-    </tr>
-</table>
-
-<h3>Types de notifications</h3>
-<table class="form-table">
-    <tr>
-        <th scope="row">Serveur hors ligne</th>
-        <td>
-            <label>
-                <input type="checkbox" name="discord_notify_offline" value="1" 
-                    <?php checked(1, get_option('discord_notify_offline', 1)); ?>>
-                Notifier quand un serveur passe hors ligne
-            </label>
-        </td>
-    </tr>
-    
-    <tr>
-        <th scope="row">Serveur en ligne</th>
-        <td>
-            <label>
-                <input type="checkbox" name="discord_notify_online" value="1" 
-                    <?php checked(1, get_option('discord_notify_online', 1)); ?>>
-                Notifier quand un serveur revient en ligne
-            </label>
-        </td>
-    </tr>
-    
-    <tr>
-        <th scope="row">Seuil de joueurs</th>
-        <td>
-            <label>
-                <input type="checkbox" name="discord_notify_player_threshold" value="1" 
-                    <?php checked(1, get_option('discord_notify_player_threshold', 0)); ?>>
-                Notifier quand le nombre de joueurs dépasse :
-                <input type="number" name="discord_player_threshold_value" 
-                    value="<?php echo intval(get_option('discord_player_threshold_value', 10)); ?>" 
-                    min="1" style="width: 60px;"> joueurs
-            </label>
-        </td>
-    </tr>
-    
-    <tr>
-        <th scope="row">Latence élevée</th>
-        <td>
-            <label>
-                <input type="checkbox" name="discord_notify_high_latency" value="1" 
-                    <?php checked(1, get_option('discord_notify_high_latency', 0)); ?>>
-                Notifier quand la latence dépasse :
-                <input type="number" name="discord_latency_threshold" 
-                    value="<?php echo intval(get_option('discord_latency_threshold', 300)); ?>" 
-                    min="50" style="width: 60px;"> ms
-            </label>
-        </td>
-    </tr>
-    
-    <tr>
-        <th scope="row">Résumé quotidien</th>
-        <td>
-            <label>
-                <input type="checkbox" name="discord_daily_summary" value="1" 
-                    <?php checked(1, get_option('discord_daily_summary', 0)); ?>>
-                Envoyer un résumé quotidien à minuit
-            </label>
-        </td>
-    </tr>
-</table>
-
-<h3>Configuration avancée</h3>
-<table class="form-table">
-    <tr>
-        <th scope="row">ID du rôle à mentionner</th>
-        <td>
-            <input type="text" name="discord_mention_role" 
-                value="<?php echo esc_attr(get_option('discord_mention_role', '')); ?>" 
-                placeholder="123456789012345678">
-            <p class="description">
-                ID du rôle Discord à mentionner lors des alertes critiques
-            </p>
-        </td>
-    </tr>
-    
-    <tr>
-        <th scope="row">Cooldown des notifications</th>
-        <td>
-            <input type="number" name="discord_notification_cooldown" 
-                value="<?php echo intval(get_option('discord_notification_cooldown', 300)); ?>" 
-                min="60" step="60"> secondes
-            <p class="description">
-                Temps minimum entre deux notifications pour le même serveur
-            </p>
-        </td>
-    </tr>
-</table>
-
-<h3>Couleurs des embeds Discord</h3>
-<table class="form-table">
-    <tr>
-        <th scope="row">Couleur Online</th>
-        <td>
-            <input type="text" class="steam-color-field" name="discord_embed_color_online" 
-                value="<?php echo esc_attr(get_option('discord_embed_color_online', '#2ecc71')); ?>">
-        </td>
-    </tr>
-    
-    <tr>
-        <th scope="row">Couleur Offline</th>
-        <td>
-            <input type="text" class="steam-color-field" name="discord_embed_color_offline" 
-                value="<?php echo esc_attr(get_option('discord_embed_color_offline', '#e74c3c')); ?>">
-        </td>
-    </tr>
-    
-    <tr>
-        <th scope="row">Couleur Avertissement</th>
-        <td>
-            <input type="text" class="steam-color-field" name="discord_embed_color_warning" 
-                value="<?php echo esc_attr(get_option('discord_embed_color_warning', '#f39c12')); ?>">
-        </td>
-    </tr>
-</table>
-
-<script>
-jQuery(document).ready(function($) {
-    // Test du webhook Discord
-    $('#test-discord-webhook').on('click', function() {
-        const button = $(this);
-        const webhookUrl = $('input[name="discord_webhook_url"]').val();
-        
-        if (!webhookUrl) {
-            alert('Veuillez entrer une URL de webhook Discord');
-            return;
-        }
-        
-        button.prop('disabled', true).text('Test en cours...');
-        
-        $.ajax({
-            url: ajaxurl,
-            method: 'POST',
-            data: {
-                action: 'test_discord_webhook',
-                webhook_url: webhookUrl,
-                nonce: '<?php echo wp_create_nonce('test_discord_webhook'); ?>'
-            },
-            success: function(response) {
-                if (response.success) {
-                    alert('✅ Test réussi ! Vérifiez votre canal Discord.');
-                } else {
-                    alert('❌ Erreur : ' + (response.data || 'Impossible de se connecter au webhook'));
-                }
-            },
-            error: function() {
-                alert('❌ Erreur de connexion');
-            },
-            complete: function() {
-                button.prop('disabled', false).text('Tester');
-            }
-        });
-    });
-    
-    // Toggle des options dépendantes
-    $('input[name="discord_enable_notifications"]').on('change', function() {
-        const isEnabled = $(this).is(':checked');
-        $('.discord-dependent').toggle(isEnabled);
-    }).trigger('change');
-    
-    $('input[name="discord_notify_player_threshold"]').on('change', function() {
-        $('input[name="discord_player_threshold_value"]').prop('disabled', !$(this).is(':checked'));
-    }).trigger('change');
-    
-    $('input[name="discord_notify_high_latency"]').on('change', function() {
-        $('input[name="discord_latency_threshold"]').prop('disabled', !$(this).is(':checked'));
-    }).trigger('change');
-});
-</script>
-
-                <h2>Police</h2>
-                <p>Police du texte : <input type="text" name="steam_font_family" value="<?php echo esc_attr($options['font_family']); ?>" placeholder="Ex: Arial, sans-serif"></p>
-                <p>Taille du texte (px) : <input type="number" name="steam_font_size" value="<?php echo esc_attr($options['font_size']); ?>" min="8" step="1"></p>
-
-                <h2>Shortcode [steam_status_all]</h2>
-                <p>Rendu par défaut : 
-                    <select name="steam_all_display_default">
-                        <option value="table" <?php selected('table', $options['all_display_default']); ?>>Tableau</option>
-                        <option value="cards" <?php selected('cards', $options['all_display_default']); ?>>Cartes</option>
-                    </select>
-                </p>
-
-                <h2>Widget Elementor</h2>
-                <p><strong>Le widget "Server Status" est maintenant disponible dans Elementor !</strong></p>
-                <p>Vous pouvez l'utiliser en cherchant "Server Status" dans la liste des widgets Elementor.</p>
-
-                <?php submit_button(); ?>
-            </form>
-        </div>
-        <?php
-    }
-    
-    private function renderGameOptions($selected = '') {
-        $html = '';
-        foreach ($this->supported_games as $engine => $games) {
-            $label = ucfirst($engine) . ' Engine';
-            if ($engine === 'minecraft') $label = 'Minecraft';
-            
-            $html .= '<optgroup label="' . $label . '">';
-            foreach ($games as $key => $name) {
-                $html .= sprintf(
-                    '<option value="%s" %s>%s</option>',
-                    $key,
-                    selected($selected, $key, false),
-                    $name
-                );
-            }
-            $html .= '</optgroup>';
-        }
-        return $html;
-    }
-    
-    private function getAllOptions() {
-        return [
-            'show_name' => get_option('steam_show_name', 1),
-            'cache_duration' => intval(get_option('steam_cache_duration', 15)),
-            'text_offline' => get_option('steam_text_offline', 'Serveur injoignable'),
-            'text_no_servers' => get_option('steam_text_no_servers', '⚠️ Aucun serveur configuré'),
-            'text_not_found' => get_option('steam_text_not_found', '⚠️ Serveur introuvable'),
-            'text_players' => get_option('steam_text_players', 'Joueurs connectés :'),
-            'text_separator' => get_option('steam_text_separator', '/'),
-            'text_no_players' => get_option('steam_text_no_players', 'Aucun joueur en ligne'),
-            'use_text_colors' => get_option('steam_use_text_colors', 1),
-            'use_border_colors' => get_option('steam_use_border_colors', 1),
-            'color_text_online' => get_option('steam_color_text_online', '#2ecc71'),
-            'color_text_offline' => get_option('steam_color_text_offline', '#e74c3c'),
-            'color_border_online' => get_option('steam_color_border_online', '#2ecc71'),
-            'color_border_offline' => get_option('steam_color_border_offline', '#e74c3c'),
-            'font_family' => get_option('steam_font_family', 'Arial, sans-serif'),
-            'font_size' => intval(get_option('steam_font_size', 14)),
-            'all_display_default' => get_option('steam_all_display_default', 'table'),
-            // Options latence
-            'show_latency_global' => get_option('steam_show_latency_global', 1),
-            'latency_cache_duration' => intval(get_option('steam_latency_cache_duration', 5)),
-            'latency_threshold_good' => intval(get_option('steam_latency_threshold_good', 80)),
-            'latency_threshold_medium' => intval(get_option('steam_latency_threshold_medium', 200)),
-            // Options Minecraft
-            'show_motd' => get_option('steam_show_motd', 1),
-            'show_version' => get_option('steam_show_version', 1),
-        ];
-    }
-    
-    // Shortcodes
     public function singleServerShortcode($atts) {
         $servers = get_option('steam_servers', []);
         if (!is_array($servers) || empty($servers)) {
-            return $this->renderOfflineStatus(get_option('steam_text_no_servers', '⚠️ Aucun serveur configuré'));
+            return $this->renderOfflineStatus(get_option('steam_text_no_servers', 'Aucun serveur configuré'));
         }
         
         $atts = shortcode_atts([
@@ -735,7 +975,7 @@ jQuery(document).ready(function($) {
         $show_name = intval($atts['show_name']);
         
         if (!isset($servers[$id])) {
-            return $this->renderOfflineStatus(get_option('steam_text_not_found', '⚠️ Serveur introuvable'));
+            return $this->renderOfflineStatus(get_option('steam_text_not_found', 'Serveur introuvable'));
         }
         
         $server = $servers[$id];
@@ -747,7 +987,7 @@ jQuery(document).ready(function($) {
     public function allServersShortcode($atts) {
         $servers = get_option('steam_servers', []);
         if (!is_array($servers) || empty($servers)) {
-            return $this->renderOfflineStatus(get_option('steam_text_no_servers', '⚠️ Aucun serveur configuré'));
+            return $this->renderOfflineStatus(get_option('steam_text_no_servers', 'Aucun serveur configuré'));
         }
         
         $display = get_option('steam_all_display_default', 'table');
@@ -758,172 +998,6 @@ jQuery(document).ready(function($) {
         } else {
             return $this->renderAllServersCards($servers, $show_name);
         }
-    }
-    
-    // Méthodes utilitaires
-    private function queryServer($server) {
-        $game_type = $server['game_type'] ?? 'source_generic';
-        $protocol = $this->getProtocolFromGameType($game_type);
-        
-        $result = [
-            'error' => false,
-            'online' => false,
-            'players' => 0,
-            'max' => 0,
-            'name' => $server['name'] ?? '',
-            'latency' => null,
-            'game_type' => $game_type,
-            'protocol' => $protocol,
-            'version' => null,
-            'motd' => null
-        ];
-        
-        try {
-            if ($protocol === 'minecraft') {
-                $result = $this->queryMinecraftServer($server, $result);
-            } else {
-                $result = $this->querySourceServer($server, $result, $protocol);
-            }
-        } catch (Exception $e) {
-            error_log('Server Query Error: ' . $e->getMessage());
-            $result['error'] = true;
-            $result['online'] = false;
-        }
-        
-        return $result;
-    }
-    
-    private function getProtocolFromGameType($game_type) {
-        if (strpos($game_type, 'minecraft') === 0) {
-            return 'minecraft';
-        } elseif (strpos($game_type, 'goldsource') === 0) {
-            return 'goldsource';
-        } else {
-            return 'source';
-        }
-    }
-    
-    private function queryMinecraftServer($server, $result) {
-        $latencies = [];
-        $timeout = 1;
-        
-        // Mesure latence avec 3 tentatives
-        for ($i = 0; $i < 3; $i++) {
-            $start_time = microtime(true);
-            
-            $query = new MinecraftQuery();
-            $query->Connect($server['ip'], $server['port'], $timeout);
-            $info = $query->GetInfo();
-            
-            $end_time = microtime(true);
-            $latencies[] = ($end_time - $start_time) * 1000;
-            
-            if ($i < 2) usleep(100000); // 100ms pause
-        }
-        
-        // Requête finale pour récupérer toutes les données
-        $query = new MinecraftQuery();
-        $query->Connect($server['ip'], $server['port'], $timeout);
-        $info = $query->GetInfo();
-        
-        if ($info) {
-            $result['online'] = true;
-            $result['players'] = intval($info['Players'] ?? 0);
-            $result['max'] = intval($info['MaxPlayers'] ?? 0);
-            $result['version'] = $info['Version'] ?? null;
-            $result['motd'] = $this->cleanMinecraftMotd($info['HostName'] ?? null);
-            $result['latency'] = round(array_sum($latencies) / count($latencies));
-        }
-        
-        return $result;
-    }
-    
-    private function querySourceServer($server, $result, $protocol) {
-        $latencies = [];
-        $timeout = 1;
-        $query = new SourceQuery();
-        
-        $source_protocol = ($protocol === 'goldsource') ? SourceQuery::GOLDSOURCE : SourceQuery::SOURCE;
-        
-        // Mesure latence avec 3 tentatives
-        for ($i = 0; $i < 3; $i++) {
-            $start_time = microtime(true);
-            
-            $query->Connect($server['ip'], $server['port'], $timeout, $source_protocol);
-            $info = $query->GetInfo();
-            
-            $end_time = microtime(true);
-            $latencies[] = ($end_time - $start_time) * 1000;
-            
-            $query->Disconnect();
-            if ($i < 2) usleep(100000); // 100ms pause
-        }
-        
-        // Requête finale pour récupérer toutes les données
-        $query->Connect($server['ip'], $server['port'], $timeout, $source_protocol);
-        $info = $query->GetInfo();
-        
-        $result['online'] = true;
-        $result['players'] = intval($info['Players'] ?? 0);
-        $result['max'] = intval($info['MaxPlayers'] ?? 0);
-        $result['version'] = $info['Version'] ?? null;
-        $result['latency'] = round(array_sum($latencies) / count($latencies));
-        
-        $query->Disconnect();
-        
-        return $result;
-    }
-    
-    private function cleanMinecraftMotd($motd) {
-        if (!$motd) return null;
-        
-        // Nettoyer les codes couleur Minecraft (§x)
-        $motd = preg_replace('/§[0-9a-fk-or]/', '', $motd);
-        
-        // Nettoyer les codes JSON si présents
-        if (is_array($motd)) {
-            $motd = isset($motd['text']) ? $motd['text'] : '';
-        }
-        
-        return trim($motd);
-    }
-    
-    private function getServerDataCached($server, $id) {
-        $cache_key = 'steam_status_' . $id;
-        $latency_cache_key = 'steam_latency_' . $id;
-        
-        $cache_duration = intval(get_option('steam_cache_duration', 15));
-        $latency_cache_duration = intval(get_option('steam_latency_cache_duration', 5));
-        
-        // Récupérer les données serveur
-        $data = get_transient($cache_key);
-        $latency = get_transient($latency_cache_key);
-        
-        if ($data === false) {
-            $data = $this->queryServer($server);
-            if (empty($data['name']) && !empty($server['name'])) {
-                $data['name'] = $server['name'];
-            }
-            
-            // Stocker avec cache séparé pour latence
-            $latency_data = $data['latency'];
-            unset($data['latency']);
-            
-            set_transient($cache_key, $data, $cache_duration);
-            set_transient($latency_cache_key, $latency_data, $latency_cache_duration);
-            
-            $data['latency'] = $latency_data;
-        } else {
-            // Si latence expirée mais pas les données serveur
-            if ($latency === false && $data['online']) {
-                $temp_data = $this->queryServer($server);
-                $latency = $temp_data['latency'];
-                set_transient($latency_cache_key, $latency, $latency_cache_duration);
-            }
-            $data['latency'] = $latency;
-        }
-        
-        return $data;
     }
     
     private function renderOfflineStatus($message) {
@@ -946,7 +1020,6 @@ jQuery(document).ready(function($) {
         $text_separator = get_option('steam_text_separator', '/');
         $text_offline = get_option('steam_text_offline', 'Serveur injoignable');
         
-        // Icône du jeu
         $game_icon = $this->getGameIcon($data['game_type'] ?? 'source_generic');
         
         if ($data['online']) {
@@ -995,45 +1068,322 @@ jQuery(document).ready(function($) {
             );
         }
     }
-    
-    private function getGameIcon($game_type) {
-        $icons = [
-            'source_cs2' => '🔫',
-            'source_csgo' => '🔫',
-            'source_css' => '🔫',
-            'source_tf2' => '🎯',
-            'source_l4d2' => '🧟',
-            'source_l4d' => '🧟',
-            'source_gmod' => '🔧',
-            'source_rust' => '🏕️',
-            'source_ark' => '🦖',
-            'source_7dtd' => '🧟‍♂️',
-            'source_insurgency' => '💥',
-            'source_kf' => '🔪',
-            'source_kf2' => '🔪',
-            'goldsource_cs16' => '🔫',
-            'goldsource_hl1' => '🔬',
-            'goldsource_tfc' => '🎯',
-            'goldsource_dod' => '⚔️',
-            'minecraft' => '🧱',
-            'source_generic' => '🎮',
-            'goldsource_generic' => '🕹️'
-        ];
+    public function renderSettingsPage() {
+        $servers = get_option('steam_servers', []);
+        if (!is_array($servers)) $servers = [];
         
-        return $icons[$game_type] ?? '🎮';
-    }
-    
-    private function getLatencyClass($latency) {
-        $good_threshold = intval(get_option('steam_latency_threshold_good', 80));
-        $medium_threshold = intval(get_option('steam_latency_threshold_medium', 200));
-        
-        if ($latency <= $good_threshold) {
-            return 'good';
-        } elseif ($latency <= $medium_threshold) {
-            return 'medium';
-        } else {
-            return 'bad';
-        }
+        $options = $this->getAllOptions();
+        $nonce = wp_create_nonce('steam_admin_actions');
+        ?>
+        <div class="wrap">
+            <h1>🎮 Réglages - Steam & Minecraft Server Status</h1>
+            <form method="post" action="options.php">
+                <?php settings_fields('steam_status_options_group'); ?>
+
+                <h2>Configuration des serveurs</h2>
+                <table class="widefat" id="steam-servers-table">
+                    <thead>
+                        <tr>
+                            <th>Nom</th>
+                            <th>Type de jeu</th>
+                            <th>Adresse IP</th>
+                            <th>Port</th>
+                            <th>Afficher latence</th>
+                            <th>Test</th>
+                            <th>Supprimer</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    <?php foreach ($servers as $index => $server): ?>
+                        <tr>
+                            <td><input type="text" name="steam_servers[<?php echo $index; ?>][name]" value="<?php echo esc_attr($server['name']); ?>" placeholder="Nom du serveur" class="regular-text"></td>
+                            <td>
+                                <select name="steam_servers[<?php echo $index; ?>][game_type]">
+                                    <?php echo $this->renderGameOptions($server['game_type'] ?? 'source_generic'); ?>
+                                </select>
+                            </td>
+                            <td><input type="text" name="steam_servers[<?php echo $index; ?>][ip]" value="<?php echo esc_attr($server['ip']); ?>" placeholder="45.90.160.141" class="regular-text"></td>
+                            <td><input type="number" name="steam_servers[<?php echo $index; ?>][port]" value="<?php echo esc_attr($server['port']); ?>" placeholder="27015" class="small-text"></td>
+                            <td><input type="checkbox" name="steam_servers[<?php echo $index; ?>][show_latency]" value="1" <?php checked(1, $server['show_latency'] ?? 0); ?>></td>
+                            <td><button type="button" class="button test-server" data-nonce="<?php echo $nonce; ?>">Tester</button></td>
+                            <td><button type="button" class="button remove-server">❌</button></td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+                <p><button type="button" class="button button-primary" id="add-server">➕ Ajouter un serveur</button></p>
+
+                <h2>Options d'affichage</h2>
+                <table class="form-table">
+                    <tr>
+                        <th>Afficher le nom du serveur</th>
+                        <td><label><input type="checkbox" name="steam_show_name" value="1" <?php checked(1, $options['show_name']); ?>> Afficher en front-end</label></td>
+                    </tr>
+                </table>
+                
+                <h2>Options Minecraft</h2>
+                <table class="form-table">
+                    <tr>
+                        <th>MOTD</th>
+                        <td><label><input type="checkbox" name="steam_show_motd" value="1" <?php checked(1, $options['show_motd']); ?>> Afficher le MOTD</label></td>
+                    </tr>
+                    <tr>
+                        <th>Version</th>
+                        <td><label><input type="checkbox" name="steam_show_version" value="1" <?php checked(1, $options['show_version']); ?>> Afficher la version</label></td>
+                    </tr>
+                </table>
+
+                <h2>Configuration Latence</h2>
+                <table class="form-table">
+                    <tr>
+                        <th>Affichage latence</th>
+                        <td><label><input type="checkbox" name="steam_show_latency_global" value="1" <?php checked(1, $options['show_latency_global']); ?>> Activer globalement</label></td>
+                    </tr>
+                    <tr>
+                        <th>Cache latence (secondes)</th>
+                        <td><input type="number" name="steam_latency_cache_duration" value="<?php echo esc_attr($options['latency_cache_duration']); ?>" min="5" step="5"></td>
+                    </tr>
+                    <tr>
+                        <th>Seuil "Bonne" latence (ms)</th>
+                        <td><input type="number" name="steam_latency_threshold_good" value="<?php echo esc_attr($options['latency_threshold_good']); ?>" min="1"></td>
+                    </tr>
+                    <tr>
+                        <th>Seuil "Moyenne" latence (ms)</th>
+                        <td><input type="number" name="steam_latency_threshold_medium" value="<?php echo esc_attr($options['latency_threshold_medium']); ?>" min="1"></td>
+                    </tr>
+                </table>
+
+                <h2>Cache</h2>
+                <table class="form-table">
+                    <tr>
+                        <th>Durée du cache serveur (secondes)</th>
+                        <td><input type="number" name="steam_cache_duration" value="<?php echo esc_attr($options['cache_duration']); ?>" min="5" step="5"></td>
+                    </tr>
+                </table>
+
+                <h2>Textes personnalisables</h2>
+                <table class="form-table">
+                    <tr><th>Serveur injoignable</th><td><input type="text" name="steam_text_offline" value="<?php echo esc_attr($options['text_offline']); ?>" class="regular-text"></td></tr>
+                    <tr><th>Aucun serveur configuré</th><td><input type="text" name="steam_text_no_servers" value="<?php echo esc_attr($options['text_no_servers']); ?>" class="regular-text"></td></tr>
+                    <tr><th>Serveur introuvable</th><td><input type="text" name="steam_text_not_found" value="<?php echo esc_attr($options['text_not_found']); ?>" class="regular-text"></td></tr>
+                    <tr><th>"Joueurs connectés"</th><td><input type="text" name="steam_text_players" value="<?php echo esc_attr($options['text_players']); ?>" class="regular-text"></td></tr>
+                    <tr><th>Séparateur joueurs/max</th><td><input type="text" name="steam_text_separator" value="<?php echo esc_attr($options['text_separator']); ?>" class="small-text"></td></tr>
+                    <tr><th>Aucun joueur</th><td><input type="text" name="steam_text_no_players" value="<?php echo esc_attr($options['text_no_players']); ?>" class="regular-text"></td></tr>
+                </table>
+
+                <h2>Style Online / Offline</h2>
+                <table class="form-table">
+                    <tr>
+                        <th>Options</th>
+                        <td>
+                            <label><input type="checkbox" name="steam_use_text_colors" value="1" <?php checked(1, $options['use_text_colors']); ?>> Activer la couleur du texte</label><br>
+                            <label><input type="checkbox" name="steam_use_border_colors" value="1" <?php checked(1, $options['use_border_colors']); ?>> Activer la couleur de la bordure</label>
+                        </td>
+                    </tr>
+                </table>
+
+                <h2>Couleurs Online / Offline</h2>
+                <table class="form-table">
+                    <tr><th>Texte Online</th><td><input type="text" class="steam-color-field" name="steam_color_text_online" value="<?php echo esc_attr($options['color_text_online']); ?>"></td></tr>
+                    <tr><th>Texte Offline</th><td><input type="text" class="steam-color-field" name="steam_color_text_offline" value="<?php echo esc_attr($options['color_text_offline']); ?>"></td></tr>
+                    <tr><th>Bordure Online</th><td><input type="text" class="steam-color-field" name="steam_color_border_online" value="<?php echo esc_attr($options['color_border_online']); ?>"></td></tr>
+                    <tr><th>Bordure Offline</th><td><input type="text" class="steam-color-field" name="steam_color_border_offline" value="<?php echo esc_attr($options['color_border_offline']); ?>"></td></tr>
+                </table>
+
+                <h3>Prévisualisation</h3>
+                <div id="preview-online" class="steam-status online" style="border: 2px solid <?php echo esc_attr($options['color_border_online']); ?>; color: <?php echo esc_attr($options['color_text_online']); ?>;">
+                    🎮 Serveur Online - 10/20 joueurs
+                </div>
+                <div id="preview-offline" class="steam-status offline" style="border: 2px solid <?php echo esc_attr($options['color_border_offline']); ?>; color: <?php echo esc_attr($options['color_text_offline']); ?>;">
+                    🎮 Serveur Offline
+                </div>
+
+                <h2>🔗 Intégration Discord</h2>
+                <table class="form-table">
+                    <tr>
+                        <th>Activer les notifications Discord</th>
+                        <td>
+                            <label>
+                                <input type="checkbox" name="discord_enable_notifications" value="1" id="discord-enable" 
+                                    <?php checked(1, get_option('discord_enable_notifications', 0)); ?>>
+                                Envoyer des notifications Discord
+                            </label>
+                        </td>
+                    </tr>
+                    <tr class="discord-dependent">
+                        <th>URL du Webhook Discord</th>
+                        <td>
+                            <input type="text" name="discord_webhook_url" class="regular-text" id="discord-webhook-url"
+                                value="<?php echo esc_attr(get_option('discord_webhook_url', '')); ?>" 
+                                placeholder="https://discord.com/api/webhooks/...">
+                            <button type="button" id="test-discord-webhook" class="button" data-nonce="<?php echo $nonce; ?>">Tester</button>
+                            <p class="description">
+                                Pour créer un webhook : Paramètres du serveur Discord → Intégrations → Webhooks → Nouveau webhook
+                            </p>
+                        </td>
+                    </tr>
+                    <tr class="discord-dependent">
+                        <th>Nom du bot</th>
+                        <td>
+                            <input type="text" name="discord_bot_username" class="regular-text"
+                                value="<?php echo esc_attr(get_option('discord_bot_username', 'Server Status Bot')); ?>" 
+                                placeholder="Server Status Bot">
+                        </td>
+                    </tr>
+                    <tr class="discord-dependent">
+                        <th>Avatar du bot (URL)</th>
+                        <td>
+                            <input type="text" name="discord_bot_avatar" class="regular-text"
+                                value="<?php echo esc_attr(get_option('discord_bot_avatar', '')); ?>" 
+                                placeholder="https://example.com/avatar.png">
+                        </td>
+                    </tr>
+                </table>
+
+                <h3 class="discord-dependent">Types de notifications</h3>
+                <table class="form-table discord-dependent">
+                    <tr>
+                        <th>Serveur hors ligne</th>
+                        <td>
+                            <label>
+                                <input type="checkbox" name="discord_notify_offline" value="1" 
+                                    <?php checked(1, get_option('discord_notify_offline', 1)); ?>>
+                                Notifier quand un serveur passe hors ligne
+                            </label>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Serveur en ligne</th>
+                        <td>
+                            <label>
+                                <input type="checkbox" name="discord_notify_online" value="1" 
+                                    <?php checked(1, get_option('discord_notify_online', 1)); ?>>
+                                Notifier quand un serveur revient en ligne
+                            </label>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Seuil de joueurs</th>
+                        <td>
+                            <label>
+                                <input type="checkbox" name="discord_notify_player_threshold" value="1" id="notify-player-threshold"
+                                    <?php checked(1, get_option('discord_notify_player_threshold', 0)); ?>>
+                                Notifier quand le nombre de joueurs dépasse :
+                                <input type="number" name="discord_player_threshold_value" 
+                                    value="<?php echo intval(get_option('discord_player_threshold_value', 10)); ?>" 
+                                    min="1" style="width: 60px;"> joueurs
+                            </label>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Latence élevée</th>
+                        <td>
+                            <label>
+                                <input type="checkbox" name="discord_notify_high_latency" value="1" id="notify-high-latency"
+                                    <?php checked(1, get_option('discord_notify_high_latency', 0)); ?>>
+                                Notifier quand la latence dépasse :
+                                <input type="number" name="discord_latency_threshold" 
+                                    value="<?php echo intval(get_option('discord_latency_threshold', 300)); ?>" 
+                                    min="50" style="width: 60px;"> ms
+                            </label>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Résumé quotidien</th>
+                        <td>
+                            <label>
+                                <input type="checkbox" name="discord_daily_summary" value="1" 
+                                    <?php checked(1, get_option('discord_daily_summary', 0)); ?>>
+                                Envoyer un résumé quotidien à minuit
+                            </label>
+                        </td>
+                    </tr>
+                </table>
+
+                <h3 class="discord-dependent">Configuration avancée</h3>
+                <table class="form-table discord-dependent">
+                    <tr>
+                        <th>ID du rôle à mentionner</th>
+                        <td>
+                            <input type="text" name="discord_mention_role" class="regular-text"
+                                value="<?php echo esc_attr(get_option('discord_mention_role', '')); ?>" 
+                                placeholder="123456789012345678">
+                            <p class="description">
+                                ID du rôle Discord à mentionner lors des alertes critiques (offline, latence élevée)
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Cooldown des notifications</th>
+                        <td>
+                            <input type="number" name="discord_notification_cooldown" 
+                                value="<?php echo intval(get_option('discord_notification_cooldown', 300)); ?>" 
+                                min="60" step="60"> secondes
+                            <p class="description">
+                                Temps minimum entre deux notifications pour le même serveur
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+
+                <h3 class="discord-dependent">Couleurs des embeds Discord</h3>
+                <table class="form-table discord-dependent">
+                    <tr>
+                        <th>Couleur Online</th>
+                        <td>
+                            <input type="text" class="steam-color-field" name="discord_embed_color_online" 
+                                value="<?php echo esc_attr(get_option('discord_embed_color_online', '#2ecc71')); ?>">
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Couleur Offline</th>
+                        <td>
+                            <input type="text" class="steam-color-field" name="discord_embed_color_offline" 
+                                value="<?php echo esc_attr(get_option('discord_embed_color_offline', '#e74c3c')); ?>">
+                        </td>
+                    </tr>
+                    <tr>
+                        <th>Couleur Avertissement</th>
+                        <td>
+                            <input type="text" class="steam-color-field" name="discord_embed_color_warning" 
+                                value="<?php echo esc_attr(get_option('discord_embed_color_warning', '#f39c12')); ?>">
+                        </td>
+                    </tr>
+                </table>
+
+                <h2>Police</h2>
+                <table class="form-table">
+                    <tr>
+                        <th>Police du texte</th>
+                        <td><input type="text" name="steam_font_family" value="<?php echo esc_attr($options['font_family']); ?>" placeholder="Ex: Arial, sans-serif" class="regular-text"></td>
+                    </tr>
+                    <tr>
+                        <th>Taille du texte (px)</th>
+                        <td><input type="number" name="steam_font_size" value="<?php echo esc_attr($options['font_size']); ?>" min="8" step="1"></td>
+                    </tr>
+                </table>
+
+                <h2>Shortcode [steam_status_all]</h2>
+                <table class="form-table">
+                    <tr>
+                        <th>Rendu par défaut</th>
+                        <td>
+                            <select name="steam_all_display_default">
+                                <option value="table" <?php selected('table', $options['all_display_default']); ?>>Tableau</option>
+                                <option value="cards" <?php selected('cards', $options['all_display_default']); ?>>Cartes</option>
+                            </select>
+                        </td>
+                    </tr>
+                </table>
+
+                <h2>Widget Elementor</h2>
+                <p><strong>Le widget "Server Status" est maintenant disponible dans Elementor !</strong></p>
+                <p>Vous pouvez l'utiliser en cherchant "Server Status" dans la liste des widgets Elementor.</p>
+
+                <?php submit_button('Enregistrer les modifications'); ?>
+            </form>
+        </div>
+        <?php
     }
     
     private function renderAllServersTable($servers) {
@@ -1051,9 +1401,8 @@ jQuery(document).ready(function($) {
             $players = $data['online'] ? $data['players'] . ' / ' . $data['max'] : '0 / 0';
             
             $game_icon = $this->getGameIcon($data['game_type'] ?? 'source_generic');
-            $game_name = $this->supported_games[
-                $this->getProtocolFromGameType($data['game_type'] ?? 'source_generic')
-            ][$data['game_type'] ?? 'source_generic'] ?? 'Inconnu';
+            $protocol = $this->getProtocolFromGameType($data['game_type'] ?? 'source_generic');
+            $game_name = $this->supported_games[$protocol][$data['game_type'] ?? 'source_generic'] ?? 'Inconnu';
             
             $latency_display = '-';
             if ($data['online'] && $data['latency'] !== null && ($server['show_latency'] ?? 0) && get_option('steam_show_latency_global', 1)) {
@@ -1099,9 +1448,8 @@ jQuery(document).ready(function($) {
             $players = $data['online'] ? $data['players'] . ' / ' . $data['max'] : '0 / 0';
             
             $game_icon = $this->getGameIcon($data['game_type'] ?? 'source_generic');
-            $game_name = $this->supported_games[
-                $this->getProtocolFromGameType($data['game_type'] ?? 'source_generic')
-            ][$data['game_type'] ?? 'source_generic'] ?? 'Inconnu';
+            $protocol = $this->getProtocolFromGameType($data['game_type'] ?? 'source_generic');
+            $game_name = $this->supported_games[$protocol][$data['game_type'] ?? 'source_generic'] ?? 'Inconnu';
             
             $latency_display = '';
             if ($data['online'] && $data['latency'] !== null && ($server['show_latency'] ?? 0) && get_option('steam_show_latency_global', 1)) {
@@ -1119,9 +1467,12 @@ jQuery(document).ready(function($) {
                 $motd_display = sprintf('<br><span class="motd">%s</span>', esc_html($data['motd']));
             }
             
+            $css_class = $data['online'] ? 'online' : 'offline';
+            
             $html .= sprintf(
-                '<div class="steam-card steam-status-server-%d">%s<strong>%s [%s]</strong><br>%s%s<br>%s%s%s</div>',
+                '<div class="steam-status steam-card steam-status-server-%d %s">%s<strong>%s [%s]</strong><br>%s%s<br>%s%s%s</div>',
                 $i,
+                $css_class,
                 $show_name ? '<strong>' . $game_icon . ' ' . esc_html($server['name']) . '</strong><br>' : '',
                 $game_icon,
                 $game_name,
@@ -1136,34 +1487,9 @@ jQuery(document).ready(function($) {
         $html .= '</div>';
         return $html;
     }
-    
-    // Méthodes publiques pour le widget Elementor
-    public function getSupportedGames() {
-        return $this->supported_games;
-    }
-    
-    public function getServers() {
-        return get_option('steam_servers', []);
-    }
-    
-
-    
-    public function renderServerForElementor($server_id, $options = []) {
-        $servers = get_option('steam_servers', []);
-        if (!isset($servers[$server_id])) {
-            return $this->renderOfflineStatus('Serveur introuvable');
-        }
-        
-        $server = $servers[$server_id];
-        $data = $this->getServerDataCached($server, $server_id);
-        
-        return $this->renderServerStatus($data, $server_id, $options['show_name'] ?? 1);
-    }
 }
 
-/**
- * Classe pour la mise à jour GitHub
- */
+// Classes pour GitHub Updater et initialisation
 class SteamStatusGitHubUpdater {
     private $file;
     private $plugin;
@@ -1307,11 +1633,17 @@ add_action('plugins_loaded', function() {
     SteamServerStatusPlugin::getInstance();
 });
 
-// Hook de désactivation pour nettoyer les caches
+// Hook de désactivation pour nettoyer les caches et crons
 register_deactivation_hook(__FILE__, function() {
     global $wpdb;
     $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_steam_status_%'");
     $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_timeout_steam_status_%'");
     $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_steam_latency_%'");
     $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_timeout_steam_latency_%'");
+    $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_steam_server_state_%'");
+    $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_steam_discord_cooldown_%'");
+    
+    // Supprimer les crons
+    wp_clear_scheduled_hook('steam_status_check_servers');
+    wp_clear_scheduled_hook('steam_status_daily_summary');
 });
