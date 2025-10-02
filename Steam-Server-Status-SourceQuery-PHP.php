@@ -415,8 +415,8 @@ class SteamServerStatusPlugin {
             }
         }
         
-        // Vérifier seuil de joueurs
-        if ($current_state['online'] && get_option('discord_notify_player_threshold', 0)) {
+        // Vérifier seuil de joueurs (seulement si pas déjà en train de notifier un changement online/offline)
+        if ($current_state['online'] && get_option('discord_notify_player_threshold', 0) && !$notify) {
             $threshold = intval(get_option('discord_player_threshold_value', 10));
             if ($current_state['players'] >= $threshold && $previous_state['players'] < $threshold) {
                 $notify = true;
