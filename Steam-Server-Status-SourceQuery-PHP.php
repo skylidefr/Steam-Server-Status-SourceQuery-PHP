@@ -418,9 +418,17 @@ class SteamServerStatusPlugin {
         // Vérifier seuil de joueurs (seulement si pas déjà en train de notifier un changement online/offline)
         if ($current_state['online'] && get_option('discord_notify_player_threshold', 0) && !$notify) {
             $threshold = intval(get_option('discord_player_threshold_value', 10));
-            if ($current_state['players'] >= $threshold && $previous_state['players'] < $threshold) {
+    
+        // Notification quand on DÉPASSE le seuil (montée)
+        if ($current_state['players'] >= $threshold && $previous_state['players'] < $threshold) {
+            $notify = true;
+            $notification_type = 'player_threshold_up';
+        }
+    
+        // Notification quand on DESCEND sous le seuil (baisse)
+            if ($current_state['players'] < $threshold && $previous_state['players'] >= $threshold) {
                 $notify = true;
-                $notification_type = 'player_threshold';
+                $notification_type = 'player_threshold_down';
             }
         }
         
@@ -505,11 +513,18 @@ class SteamServerStatusPlugin {
                 }
                 break;
                 
-            case 'player_threshold':
+            case 'player_threshold_up':
                 $threshold = intval(get_option('discord_player_threshold_value', 10));
                 $embed['title'] = '👥 Seuil de joueurs atteint';
                 $embed['description'] = "Le serveur **{$server['name']}** a atteint {$state['players']} joueurs (seuil: {$threshold}).";
                 $embed['color'] = hexdec(str_replace('#', '', $color_online));
+                break;
+    
+            case 'player_threshold_down':
+                $threshold = intval(get_option('discord_player_threshold_value', 10));
+                $embed['title'] = '📉 Joueurs sous le seuil';
+                $embed['description'] = "Le serveur **{$server['name']}** est passé à {$state['players']} joueurs (seuil: {$threshold}).";
+                $embed['color'] = hexdec(str_replace('#', '', $color_warning));
                 break;
                 
             case 'high_latency':
@@ -1267,12 +1282,15 @@ class SteamServerStatusPlugin {
                         <td>
                             <label>
                                 <input type="checkbox" name="discord_notify_player_threshold" value="1" id="notify-player-threshold"
-                                    <?php checked(1, get_option('discord_notify_player_threshold', 0)); ?>>
-                                Notifier quand le nombre de joueurs dépasse :
-                                <input type="number" name="discord_player_threshold_value" 
-                                    value="<?php echo intval(get_option('discord_player_threshold_value', 10)); ?>" 
-                                    min="1" style="width: 60px;"> joueurs
+                                <?php checked(1, get_option('discord_notify_player_threshold', 0)); ?>>
+                            Notifier quand le nombre de joueurs dépasse ou descend sous :
+                            <input type="number" name="discord_player_threshold_value" 
+                                value="<?php echo intval(get_option('discord_player_threshold_value', 10)); ?>" 
+                                min="1" style="width: 60px;"> joueurs
                             </label>
+                            <p class="description">
+                                Vous recevrez une notification quand les joueurs passent au-dessus OU en-dessous de ce seuil.
+                            </p>
                         </td>
                     </tr>
                     <tr>
