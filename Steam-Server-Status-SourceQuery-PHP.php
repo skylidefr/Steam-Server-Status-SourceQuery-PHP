@@ -2,7 +2,7 @@
 /*
 Plugin Name: Steam Server Status SourceQuery PHP
 Description: Affiche le nombre de joueurs connectés sur un ou plusieurs serveurs Steam et Minecraft avec personnalisation avancée.
-Version: 1.4.0
+Version: 1.4.1
 Author: Skylide
 GitHub Plugin URI: skylidefr/Steam-Server-Status-SourceQuery-PHP
 GitHub Branch: main
