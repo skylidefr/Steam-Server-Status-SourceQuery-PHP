@@ -91,53 +91,68 @@ class SteamServerStatusPlugin {
     }
     
     private function init() {
-        add_action('init', [$this, 'initPlugin']);
-        add_action('admin_menu', [$this, 'addAdminMenu']);
-        add_action('admin_init', [$this, 'registerSettings']);
-        add_action('admin_enqueue_scripts', [$this, 'enqueueAdminAssets']);
-        add_action('wp_head', [$this, 'addFrontendStyles']);
-        
-        // Shortcodes
-        add_shortcode('steam_status', [$this, 'singleServerShortcode']);
-        add_shortcode('steam_status_all', [$this, 'allServersShortcode']);
-        
-        // Widget Elementor
-        add_action('elementor/widgets/widgets_registered', [$this, 'registerElementorWidget']);
-        add_action('elementor/editor/before_enqueue_scripts', [$this, 'enqueueElementorEditorAssets']);
-        add_action('elementor/frontend/after_enqueue_styles', [$this, 'enqueueElementorFrontendAssets']);
-        
-        // AJAX Handlers
-        add_action('wp_ajax_test_discord_webhook', [$this, 'ajaxTestDiscordWebhook']);
-        add_action('wp_ajax_test_server_connection', [$this, 'ajaxTestServerConnection']);
-        
-        // Système de mise à jour GitHub
-        if (is_admin()) {
-            new SteamStatusGitHubUpdater($this->plugin_file);
-        }
-        
-        // Cron pour notifications Discord
-        add_action('steam_status_check_servers', [$this, 'checkServersStatus']);
-        add_action('steam_status_daily_summary', [$this, 'sendDailySummary']);
-        
-        if (!wp_next_scheduled('steam_status_check_servers')) {
-            wp_schedule_event(time(), 'every_minute', 'steam_status_check_servers');
-        }
-        
-        if (!wp_next_scheduled('steam_status_daily_summary')) {
-            wp_schedule_event(strtotime('tomorrow midnight'), 'daily', 'steam_status_daily_summary');
-        }
+    // IMPORTANT : Enregistrer l'intervalle personnalisé EN PREMIER
+    add_filter('cron_schedules', [$this, 'addCustomCronInterval']);
+    
+    add_action('init', [$this, 'initPlugin']);
+    add_action('admin_menu', [$this, 'addAdminMenu']);
+    add_action('admin_init', [$this, 'registerSettings']);
+    add_action('admin_enqueue_scripts', [$this, 'enqueueAdminAssets']);
+    add_action('wp_head', [$this, 'addFrontendStyles']);
+    
+    // Shortcodes
+    add_shortcode('steam_status', [$this, 'singleServerShortcode']);
+    add_shortcode('steam_status_all', [$this, 'allServersShortcode']);
+    
+    // Widget Elementor
+    add_action('elementor/widgets/widgets_registered', [$this, 'registerElementorWidget']);
+    add_action('elementor/editor/before_enqueue_scripts', [$this, 'enqueueElementorEditorAssets']);
+    add_action('elementor/frontend/after_enqueue_styles', [$this, 'enqueueElementorFrontendAssets']);
+    
+    // AJAX Handlers
+    add_action('wp_ajax_test_discord_webhook', [$this, 'ajaxTestDiscordWebhook']);
+    add_action('wp_ajax_test_server_connection', [$this, 'ajaxTestServerConnection']);
+    
+    // Système de mise à jour GitHub
+    if (is_admin()) {
+        new SteamStatusGitHubUpdater($this->plugin_file);
     }
     
+    // Cron pour notifications Discord
+    add_action('steam_status_check_servers', [$this, 'checkServersStatus']);
+    add_action('steam_status_daily_summary', [$this, 'sendDailySummary']);
+    
+    // Programmer les crons une fois WordPress chargé
+    add_action('wp_loaded', [$this, 'scheduleCronJobs']);
+}
+    
     public function initPlugin() {
-        // Enregistrer l'intervalle personnalisé
-        add_filter('cron_schedules', function($schedules) {
-            $schedules['every_minute'] = [
-                'interval' => 60,
-                'display' => __('Chaque minute')
-            ];
-            return $schedules;
-        });
+    // Cette méthode peut rester vide ou contenir d'autres initialisations futures
+}
+
+/**
+ * Ajoute l'intervalle personnalisé "Chaque minute"
+ */
+public function addCustomCronInterval($schedules) {
+    $schedules['every_minute'] = [
+        'interval' => 60,
+        'display' => __('Chaque minute')
+    ];
+    return $schedules;
+}
+
+/**
+ * Programme les tâches cron si elles n'existent pas déjà
+ */
+public function scheduleCronJobs() {
+    if (!wp_next_scheduled('steam_status_check_servers')) {
+        wp_schedule_event(time(), 'every_minute', 'steam_status_check_servers');
     }
+    
+    if (!wp_next_scheduled('steam_status_daily_summary')) {
+        wp_schedule_event(strtotime('tomorrow midnight'), 'daily', 'steam_status_daily_summary');
+    }
+}
     
     public function registerElementorWidget() {
         if (did_action('elementor/loaded')) {
@@ -1518,9 +1533,12 @@ class SteamStatusGitHubUpdater {
     private $github_response;
     
     public function __construct($file) {
-        $this->file = $file;
-        add_action('admin_init', [$this, 'setPluginProperties']);
-    }
+    $this->file = $file;
+    add_action('admin_init', [$this, 'setPluginProperties']);
+    
+    // Ajouter le hook AVANT l'installation pour nettoyer
+    add_filter('upgrader_pre_install', [$this, 'beforeInstall'], 10, 2);
+}
     
     public function setPluginProperties() {
         $this->plugin = get_plugin_data($this->file);
@@ -1535,6 +1553,36 @@ class SteamStatusGitHubUpdater {
             add_filter('upgrader_post_install', [$this, 'afterInstall'], 10, 3);
         }
     }
+
+    /**
+ * Nettoyer AVANT l'installation de la nouvelle version
+ */
+public function beforeInstall($true, $hook_extra) {
+    // Vérifier que c'est bien notre plugin
+    if (isset($hook_extra['plugin']) && $hook_extra['plugin'] === $this->basename) {
+        global $wp_filesystem;
+        
+        $plugin_folder = dirname($this->basename);
+        $plugin_path = WP_PLUGIN_DIR . '/' . $plugin_folder;
+        
+        // Désactiver le plugin
+        if (is_plugin_active($this->basename)) {
+            deactivate_plugins($this->basename, true);
+        }
+        
+        // Supprimer l'ancien dossier avec WP_Filesystem
+        if ($wp_filesystem->exists($plugin_path)) {
+            $wp_filesystem->delete($plugin_path, true, 'd');
+        }
+        
+        // Si la suppression WP_Filesystem échoue, utiliser PHP natif
+        if (file_exists($plugin_path)) {
+            $this->recursiveRemoveDirectory($plugin_path);
+        }
+    }
+    
+    return $true;
+}
     
     private function parseGitHubInfo() {
         $plugin_content = file_get_contents($this->file);
@@ -1596,19 +1644,55 @@ class SteamStatusGitHubUpdater {
         ];
     }
     
-    public function afterInstall($response, $hook_extra, $result) {
-        global $wp_filesystem;
-        
-        $install_directory = plugin_dir_path($this->file);
-        $wp_filesystem->move($result['destination'], $install_directory);
-        $result['destination'] = $install_directory;
-        
-        if ($this->active) {
-            activate_plugin($this->basename);
+public function afterInstall($response, $hook_extra, $result) {
+    global $wp_filesystem;
+    
+    // Récupérer le nom du dossier du plugin
+    $plugin_folder = dirname($this->basename);
+    $proper_destination = WP_PLUGIN_DIR . '/' . $plugin_folder;
+    
+    // Renommer/déplacer le dossier temporaire vers le bon emplacement
+    if ($wp_filesystem->move($result['destination'], $proper_destination)) {
+        $result['destination'] = $proper_destination;
+        $result['destination_name'] = $plugin_folder;
+    }
+    
+    // Réactiver le plugin si il était actif
+    if ($this->active) {
+        activate_plugin($this->basename);
+    }
+    
+    return $result;
+}
+
+/**
+ * Suppression récursive en cas d'échec de WP_Filesystem
+ */
+private function recursiveRemoveDirectory($directory) {
+    if (!file_exists($directory)) {
+        return true;
+    }
+    
+    if (!is_dir($directory)) {
+        return unlink($directory);
+    }
+    
+    foreach (scandir($directory) as $item) {
+        if ($item == '.' || $item == '..') {
+            continue;
         }
         
-        return $result;
+        $path = $directory . DIRECTORY_SEPARATOR . $item;
+        
+        if (is_dir($path)) {
+            $this->recursiveRemoveDirectory($path);
+        } else {
+            unlink($path);
+        }
     }
+    
+    return rmdir($directory);
+}
     
     private function getRepositoryInfo() {
         if ($this->github_response !== null) {
